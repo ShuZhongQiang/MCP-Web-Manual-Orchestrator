@@ -1,6 +1,6 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 import { FastMCP } from "fastmcp";
-import { APP_NAME, APP_VERSION } from "./config.js";
+import { APP_NAME, APP_VERSION, BASE_MANUAL_DIR } from "./config.js";
 import { browserManager } from "./core/browser.js";
 import { elementStore } from "./core/elementStore.js";
 import { stepRecorder } from "./core/stepRecorder.js";
@@ -53,6 +53,14 @@ const main = async () => {
   await server.start({
     transportType: "stdio",
   });
+
+  const envBase = process.env.MANUALS_DIR;
+  console.log(`[Manuals] BASE_MANUAL_DIR = ${BASE_MANUAL_DIR}`);
+  if (envBase) {
+    console.log(`[Manuals] MANUALS_DIR override detected: ${envBase}`);
+  } else {
+    console.log('[Manuals] Using default project-root manuals path');
+  }
 };
 
 main().catch(console.error);

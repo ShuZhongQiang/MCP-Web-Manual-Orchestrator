@@ -32,7 +32,7 @@ description: Executes web steps and generates highlighted HTML manuals. Invoke w
 
 ## 执行接口约定
 该 Skill 在内部按以下能力链路完成任务：
-1. 初始化 `runId` 与目录 `D:\manuals\run_{runId}\`。
+1. 初始化 `runId` 与手册默认目录 `<projectRoot>\\manualsByAi\\run_{runId}\\`（可配置 `MANUALS_DIR` 环境变量）。
 2. 将自然语言步骤解析为结构化动作。
 3. 循环执行：`find_element` -> `navigate/click/input_text` -> `highlight_and_capture` -> 记录步骤。
 4. 调用 `generate_manual` 生成 HTML。
@@ -43,7 +43,7 @@ description: Executes web steps and generates highlighted HTML manuals. Invoke w
 - **零代码原则**：禁止自行编写自动化执行代码；所有网页交互必须通过预定义 Skills。
 - **高亮截图必选**：禁止普通截图，每个关键步骤都必须调用 `highlight_and_capture`。
 - **顺序不可变**：固定为“定位元素 -> 执行动作 -> 高亮截图”。
-- **路径隔离**：HTML 与截图只能写入 `D:\manuals\run_{runId}\`，且必须为绝对路径。
+- **路径隔离**：HTML 与截图只能写入手册目录下的`<projectRoot>\\manualsByAi\\run_{runId}\\`。
 - **失败重试**：定位失败和动作失败均自动重试 2 次；定位失败记 `warning` 并继续，动作失败记 `error`，截图失败该步记 `FAIL`。
 - **固定回退链路**：元素定位按 `stableSelector -> semantic(text/label/placeholder/role) -> inspectSummary` 顺序回退，禁止随意跳步。
 - **结构探测懒加载**：默认不调用 `inspect_summary`，仅在定位失败、候选歧义高、动作后状态不符合预期时触发。
@@ -66,7 +66,7 @@ description: Executes web steps and generates highlighted HTML manuals. Invoke w
 
 ## 当前 Node 项目对齐信息
 - MCP 启动入口：`src/index.ts`，使用 FastMCP `start({ transportType: "stdio" })`。
-- 截图与手册目录：固定为 `D:\manuals\run_{runId}\`。
+- 截图与手册默认目录：`<projectRoot>\\manualsByAi\\run_{runId}\\`（可用 `MANUALS_DIR` 覆盖）
 - 工具命名使用主工具名：`navigate/find_element/click/input_text/highlight_and_capture/generate_manual/inspect_summary/inspect_detail/list_elements/get_run_context/close_session`。
 - `run_id` 已在执行类工具中强制要求传入，元素缓存与步骤记录按 run 维度隔离。
 - 运行审计字段包含：`status/errorCode/retryCount/latencyMs/pageUrlBefore/pageUrlAfter`。

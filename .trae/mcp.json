@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "web-manual": {
+      "command": "node",
+       "args": ["D:\\AI-agent\\Node_Fast_Mcp_Web_Manual_Agent\\dist\\index.js"]
+    }
+  }
+}

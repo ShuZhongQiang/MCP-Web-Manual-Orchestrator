@@ -1,4 +1,4 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 import type { FastMCP } from "fastmcp";
 import { browserManager } from "../core/browser.js";
 import { ENABLE_TOOL_ALIASES } from "../config.js";
@@ -48,21 +48,59 @@ export const registerClickTool = (server: FastMCP): void => {
           if (urlChanged) {
             await page.waitForLoadState("domcontentloaded", { timeout: CLICK_NAVIGATION_WAIT_MS }).catch(() => undefined);
           }
-          await page.waitForTimeout(100);
+          await page.waitForTimeout(120);
+
+          // Generic validation/error detection after click (表单校验/错误提示)
+          const validation = await page.evaluate(() => {
+            const selectors = [
+              ".ant-form-item-explain-error",
+              ".ant-message-error",
+              ".ant-notification-notice-message",
+              ".el-form-item__error",
+              ".el-message--error",
+              ".alert-danger",
+              ".invalid-feedback",
+              "[aria-invalid=\"true\"]",
+            ];
+            for (const sel of selectors) {
+              const el = document.querySelector(sel) as HTMLElement | null;
+              if (el && (el.offsetParent !== null || getComputedStyle(el).display !== "none")) {
+                const text = (el.textContent || "").trim().slice(0, 200);
+                return { failed: true, message: text || sel };
+              }
+            }
+            const body = document.body?.innerText || "";
+            const re = /(必填|必填项|不能为空|请填写|校验失败|验证失败|Required|is required)/i;
+            if (re.test(body)) {
+              return { failed: true, message: body.match(re)?.[0] || "VALIDATION" };
+            }
+            return { failed: false };
+          });
+
+          const status = validation.failed ? "FAILED" : "SUCCESS" as const;
+          if (validation.failed) {
+            errorCode = "VALIDATION_ERROR";
+          }
+
           stepRecorder.add(run_id, {
             step,
             desc,
             action: "click",
-            status: "SUCCESS",
+            status,
             retryCount: retry,
             latencyMs: Date.now() - startedAt,
             pageUrlBefore,
             pageUrlAfter: page.url(),
             createdAt: new Date().toISOString(),
           });
+
+          if (validation.failed) {
+            throw new Error("Click resulted in validation error");
+          }
+
           return "Clicked successfully";
-        } catch {
-          errorCode = "CLICK_FAILED";
+        } catch (e) {
+          errorCode = errorCode ?? "CLICK_FAILED";
           if (retry < retry_count) {
             await page.waitForTimeout(200 * (retry + 1));
           }
