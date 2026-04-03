@@ -1,12 +1,59 @@
-﻿import { z } from "zod";
+import path from "node:path";
+import { z } from "zod";
 import type { FastMCP } from "fastmcp";
 import { browserManager } from "../core/browser.js";
-import { ENABLE_TOOL_ALIASES } from "../config.js";
+import { ENABLE_TOOL_ALIASES, SCREENSHOT_RENDER_WAIT_MS } from "../config.js";
 import { elementStore } from "../core/elementStore.js";
+import { preActionCaptureStore } from "../core/preActionCaptureStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
+import { getRunDir } from "../utils/file.js";
+import { clearHighlight, renderHighlight } from "../utils/highlight.js";
 
 const CLICK_NAVIGATION_WAIT_MS = 2500;
 const CLICK_URL_CHANGE_DETECT_MS = 400;
+
+const captureBeforeClick = async ({
+  runId,
+  step,
+  action,
+  text,
+  elementId,
+}: {
+  runId: string;
+  step: number;
+  action: string;
+  text: string;
+  elementId: string;
+}): Promise<void> => {
+  const page = await browserManager.getPage(runId);
+  const locator = await elementStore.get(runId, elementId).catch(() => undefined);
+  if (!locator) {
+    return;
+  }
+  const safeAction = action.replaceAll(/[\\/:*?"<>|]/g, "_");
+  const screenshotPath = path.join(getRunDir(runId), `${step}_${safeAction}.png`);
+  try {
+    await locator.scrollIntoViewIfNeeded();
+    const box = await locator.boundingBox();
+    if (!box) {
+      return;
+    }
+    await renderHighlight(page, box, text);
+    await page.waitForTimeout(SCREENSHOT_RENDER_WAIT_MS);
+    await page.screenshot({ path: screenshotPath });
+    preActionCaptureStore.add(runId, {
+      elementId,
+      action,
+      step,
+      text,
+      screenshotPath,
+    });
+  } catch {
+    // Ignore pre-capture errors so click behavior stays unchanged.
+  } finally {
+    await clearHighlight(page).catch(() => undefined);
+  }
+};
 
 export const registerClickTool = (server: FastMCP): void => {
   const definition = {
@@ -33,6 +80,15 @@ export const registerClickTool = (server: FastMCP): void => {
       const desc = text ?? "点击元素";
       const pageUrlBefore = page.url();
       const startedAt = Date.now();
+
+      await captureBeforeClick({
+        runId: run_id,
+        step,
+        action: "click",
+        text: desc,
+        elementId: element_id,
+      });
+
       let errorCode: string | undefined;
       for (let retry = 0; retry <= retry_count; retry += 1) {
         try {
@@ -77,7 +133,7 @@ export const registerClickTool = (server: FastMCP): void => {
             return { failed: false };
           });
 
-          const status = validation.failed ? "FAILED" : "SUCCESS" as const;
+          const status: "FAILED" | "SUCCESS" = validation.failed ? "FAILED" : "SUCCESS";
           if (validation.failed) {
             errorCode = "VALIDATION_ERROR";
           }
@@ -99,7 +155,7 @@ export const registerClickTool = (server: FastMCP): void => {
           }
 
           return "Clicked successfully";
-        } catch (e) {
+        } catch {
           errorCode = errorCode ?? "CLICK_FAILED";
           if (retry < retry_count) {
             await page.waitForTimeout(200 * (retry + 1));

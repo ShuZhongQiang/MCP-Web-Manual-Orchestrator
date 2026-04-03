@@ -34,7 +34,9 @@ description: "Executes web steps and generates highlighted HTML manuals. Invoke 
 该 Skill 在内部按以下能力链路完成任务：
 1. 初始化 `runId` 与目录 `<projectRoot>\\manualsByAi\\run_{runId}\\`。
 2. 将自然语言步骤解析为结构化动作。
-3. 循环执行：`find_element` -> `navigate/click/input_text` -> `highlight_and_capture` -> 记录步骤。
+3. 循环执行：
+   - `click` 且可能触发跳转/弹窗/DOM 刷新：`find_element` -> `highlight_and_capture` -> `click` -> （如需）`highlight_and_capture` 回退确认。
+   - 其他动作：`find_element` -> `navigate/input_text/click` -> `highlight_and_capture` -> 记录步骤。
 4. 调用 `generate_manual` 生成 HTML。
 5. 调用 `close_session` 回收浏览器内存。
 6. 汇总并返回标准 JSON 结果。
@@ -42,7 +44,7 @@ description: "Executes web steps and generates highlighted HTML manuals. Invoke 
 ## 约束规则 (Execution Rules)
 - **零代码原则**：禁止自行编写自动化执行代码；所有网页交互必须通过预定义 Skills。
 - **高亮截图必选**：禁止普通截图，每个关键步骤都必须调用 `highlight_and_capture`。
-- **顺序不可变**：固定为“定位元素 -> 执行动作 -> 高亮截图”。
+- **截图时机规则**：默认“定位元素 -> 执行动作 -> 高亮截图”；但对高风险 `click`（跳转/弹窗/重渲染）优先“定位元素 -> 高亮截图 -> 点击”，并允许点击后截图失败时回退到点击前截图。
 - **路径隔离**：HTML 与截图只能写入 `<projectRoot>\\manualsByAi\\run_{runId}\\`，且必须为绝对路径。
 - **失败重试**：定位失败和动作失败均自动重试 2 次；定位失败记 `warning` 并继续，动作失败记 `error`，截图失败该步记 `FAIL`。
 - **固定回退链路**：元素定位按 `stableSelector -> semantic(text/label/placeholder/role) -> inspectSummary` 顺序回退，禁止随意跳步。

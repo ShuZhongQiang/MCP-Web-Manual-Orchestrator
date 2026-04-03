@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { FastMCP } from "fastmcp";
 import { ENABLE_TOOL_ALIASES } from "../config.js";
 import { elementStore } from "../core/elementStore.js";
+import { preActionCaptureStore } from "../core/preActionCaptureStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
 import type { StepRecord } from "../types.js";
 import { getRunDir, toRelativeImagePath } from "../utils/file.js";
@@ -92,6 +93,7 @@ export const registerGenerateManualTool = (server: FastMCP): void => {
       if (clear_after_generate) {
         stepRecorder.clear(run_id);
         elementStore.clearRun(run_id);
+        preActionCaptureStore.clearRun(run_id);
       }
 
       return htmlPath;
