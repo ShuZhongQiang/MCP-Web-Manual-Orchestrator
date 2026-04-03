@@ -12,7 +12,8 @@
   "mcpServers": {
     "mcp-web-manual-orchestrator": {
       "command": "node",
-      "args": ["<项目绝对路径>/dist/index.js"]
+      "args": ["<项目绝对路径>/dist/index.js"],
+      "cwd": "<项目绝对路径>"
     }
   }
 }

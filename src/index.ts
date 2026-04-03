@@ -1,6 +1,6 @@
 ﻿import { z } from "zod";
 import { FastMCP } from "fastmcp";
-import { APP_NAME, APP_VERSION, BASE_MANUAL_DIR } from "./config.js";
+import { APP_NAME, APP_VERSION, BASE_MANUAL_DIR, PROJECT_ROOT } from "./config.js";
 import { browserManager } from "./core/browser.js";
 import { elementStore } from "./core/elementStore.js";
 import { stepRecorder } from "./core/stepRecorder.js";
@@ -55,6 +55,7 @@ const main = async () => {
   });
 
   const envBase = process.env.MANUALS_DIR;
+  console.log(`[Manuals] PROJECT_ROOT = ${PROJECT_ROOT}`);
   console.log(`[Manuals] BASE_MANUAL_DIR = ${BASE_MANUAL_DIR}`);
   if (envBase) {
     console.log(`[Manuals] MANUALS_DIR override detected: ${envBase}`);
