@@ -1,6 +1,6 @@
 ---
-name: web-manual-agent
-description: Executes web steps and generates highlighted HTML manuals. Invoke when user asks to create a web operation manual from natural-language instructions.
+name: "web-manual-agent"
+description: "Executes web steps and generates highlighted HTML manuals. Invoke when user asks to create a web operation manual from natural-language instructions."
 ---
 
 # Web Manual Generator Skill

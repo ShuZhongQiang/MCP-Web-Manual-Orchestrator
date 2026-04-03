@@ -1,6 +1,22 @@
-# 🌐 Node Fast MCP Web Manual Agent
+# 🌐 MCP Web Manual Orchestrator
 
-一个专为大语言模型（LLM）设计的**生产级 Web 自动化与操作手册生成系统**。基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io) 标准，结合 Playwright 的强大浏览器控制能力，实现了**高成功率**、**低 Token 消耗**的网页交互与自动文档生成。
+**MCP 网页操作手册编排引擎** (MCP Web Manual Orchestrator) 是一个专为大语言模型（LLM）设计的生产级 Web 自动化与操作手册生成系统。基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io) 标准，结合 Playwright 的浏览器控制能力，实现了高成功率、低 Token 消耗的网页交互与自动文档生成。
+
+## 🎯 项目定位 (Positioning)
+
+本项目采用“三层协同”架构，定位不是单一 Agent 或单一 Skill，而是以 MCP 为底座的可产品化 Agent Infra：
+
+- **MCP（核心底座）**
+  - 以 FastMCP Server 形式对外提供标准工具能力（导航、查找、点击、输入、洞察、手册生成）。
+  - 负责能力暴露、会话隔离、审计数据输出与稳定执行。
+- **Agent（决策编排层）**
+  - 通过系统级 Prompt 约束执行边界与 SOP，负责“任务拆解 -> 调度工具 -> 状态判定 -> 结果汇总”。
+  - 强调低 Token 决策与失败回退，不直接承载底层自动化实现。
+- **Skill（IDE 适配层）**
+  - 面向 Trae/Cursor 等使用场景提供触发条件、调用约束与策略模板。
+  - 用于让上层模型更稳定地消费 MCP 能力，而非替代 MCP 服务本身。
+
+一句话描述：**这是一个 MCP Server 主导、Agent 负责编排、Skill 负责调用约束的复合型工程。**
 
 ## ✨ 核心特性 (Core Features)
 
@@ -17,18 +33,91 @@
   - 大幅提升点击与查找的成功率，避免偶发性交互失败。
 - **📊 深度可观测性 (Deep Observability)**
   - 完备的审计字段（如 `status`, `errorCode`, `retryCount`, `latencyMs`, `pageUrlBefore/After`）。
-  - 赋予大模型精准的**自我纠错（Self-Correction）**能力，Agent 可以明确知道上一步点击是否成功、是否引起了预期内的页面跳转。
+  - 赋予大模型精准的\*\*自我纠错（Self-Correction）\*\*能力，Agent 可以明确知道上一步点击是否成功、是否引起了预期内的页面跳转。
 - **📸 自动化手册生成**
   - 在后台零干预记录每一步交互（含截图与高亮），任务完成后一键生成精美、结构化的 HTML Web 操作手册。
+
+## 🏆 独特优势与对比 (Differentiators)
+
+### 1) Token 经济学优化（核心亮点）
+
+- 典型方案常直接返回大体量 DOM，容易造成 Token 激增。
+- 本项目默认优先盲狙 `find_element`，仅在失败、歧义高或状态异常时才触发 `inspect_summary`，再按需 `inspect_detail`。
+- 这种 `inspect_summary / inspect_detail` 分层设计能显著降低上下文开销，在常见流程中可实现大幅 Token 节省。
+
+### 2) 生产级状态隔离
+
+- 典型方案使用全局单例上下文，多个任务并发时容易互相污染。
+- 本项目基于 `run_id` 进行会话级隔离，元素缓存由 `elementStore.ts` 按 run 管理。
+- 结果是并发场景下更稳定，降低元素 ID 冲突和历史状态串扰风险。
+
+### 3) 智能容错链路
+
+- 不是“失败即报错”的单层点击封装，而是多级回退策略：
+- Playwright 语义匹配 → DOM 属性遍历 → 动态轮询等待。
+- 同时记录 `retryCount`、`errorCode` 等审计字段，便于后续诊断与策略调整。
+
+### 4) 可驱动自我纠错的审计输出
+
+- 不是仅返回 `success: true/false`，而是返回结构化执行证据，例如：
+
+```json
+{
+  "status": "success",
+  "pageUrlBefore": "https://example.com/login",
+  "pageUrlAfter": "https://example.com/dashboard",
+  "latencyMs": 1234,
+  "retryCount": 2,
+  "errorCode": null
+}
+```
+
+- LLM 可据此判断点击是否生效、页面是否按预期跳转、是否需要重试或切换策略。
+
+### 5) 从工具到解决方案：自动手册生成
+
+- 市面上典型的 Playwright MCP 方案只提供浏览器控制接口，不沉淀可交付结果。
+- 本项目通过 `stepRecorder.ts` 持续记录步骤，结合高亮截图，最终一键生成结构化 HTML 操作手册。
+- 这使系统从“执行工具”升级为“可交付解决方案”。
+
+## 📊 对比总结 (Quick Comparison)
+
+| 维度       | 典型 Playwright MCP | 本项目         |
+| -------- | ----------------- | ----------- |
+| 定位       | 工具封装              | 生产级解决方案     |
+| Token 消耗 | 高（常见全量结构返回）       | 低（按需分层加载）   |
+| 并发支持     | 易状态冲突             | `run_id` 隔离 |
+| 容错能力     | 基础重试              | 多级降级链路      |
+| 可观测性     | 成功/失败为主           | 完整审计字段      |
+| 附加价值     | 无                 | 自动生成操作手册    |
+
+## 🎓 核心竞争力 (Value Proposition)
+
+本项目不是“Playwright 的 MCP 版本”，而是**为 LLM 深度优化的 Web 自动化编排引擎**，重点解决真实落地痛点：
+
+- Token 成本失控
+- 动态页面导致交互成功率波动
+- 缺乏审计信息导致模型难以自我纠错
+- 缺少可交付、可复用的操作文档
 
 ## 📂 目录结构 (Architecture)
 
 ```text
-Node_Fast_Mcp_Web_Manual_Agent/
-├── .trae/
-│   └── skills/
-│       └── web-manual-agent/
-│           └── SKILL.md        # Trae 编辑器专属 Skill 定义，约束了低 Token 决策树与调用准则
+MCP_Web_Manual_Orchestrator/
+├── docs/
+│   └── prompts/
+│       └── system-prompt.md    # 系统级 Agent Prompt（原 web_manual_agent.md）
+├── ide-configs/
+│   ├── README.md               # 多 IDE 配置索引
+│   ├── trae/
+│   │   ├── README.md
+│   │   ├── mcp.config.example.json
+│   │   └── skills/
+│   │       └── web-manual-agent/
+│   │           └── SKILL.md    # Trae Skill 约束定义
+│   └── cursor/
+│       ├── README.md
+│       └── mcp.config.example.json
 ├── src/
 │   ├── core/
 │   │   ├── browser.ts          # BrowserManager: 封装 Playwright 实例
@@ -54,21 +143,24 @@ Node_Fast_Mcp_Web_Manual_Agent/
 │
 ├── package.json
 ├── tsconfig.json
-├── web_manual_agent.md         # 核心 Agent System Prompt：定义了 Agent 的身份边界、容错处理与编排流
 ```
 
-## 🧠 Agent 大脑设定 (Prompt & Skills)
+## 🧠 Agent 与 Skill 设定 (Prompt & Skills)
 
 本项目不仅提供了底层的 Node.js MCP Server，还配套了高度优化的 Agent Prompt 设定文件，这两份文档是让大模型变“聪明”的关键：
 
-### 1. `web_manual_agent.md` (系统级 Prompt)
+### 1. `docs/prompts/system-prompt.md` (系统级 Prompt)
+
 这是整个 Agent 系统的**宪法与行动指南**。它严格界定了 LLM 在处理 Web 自动化任务时的行为边界：
+
 - **禁止自行编写代码**：所有操作必须且只能通过 MCP Skills 完成，防止模型“自作主张”去写不稳定的爬虫脚本。
 - **固化执行编排流**：强制约定了“解析操作 -> 定位元素 -> 执行动作 -> 高亮截图 -> 生成报告”的标准 SOP。
 - **强制沙箱与审计**：要求所有操作传入 `run_id` 并在失败时捕获完整的审计字段。
 
-### 2. `.trae/skills/web-manual-agent/SKILL.md` (低 Token 决策约束)
+### 2. `ide-configs/trae/skills/web-manual-agent/SKILL.md` (低 Token 决策约束)
+
 这是针对 Trae 这一类 AI IDE 设计的专用 Skill 配置，其核心价值在于**Token 节流与智能降级**：
+
 - **结构探测懒加载**：默认禁止一开始就拉取全量页面 DOM（极度消耗 Token），而是优先盲狙（`find_element`）。只有在盲狙失败、歧义过高或状态异常时，才触发 `inspect_summary` 扫视页面。
 - **回退链路（Fallback）**：定义了 `稳定选择器 -> 语义匹配 -> 页面摘要` 的标准降级搜索顺序。
 - **关键词截断**：指导模型在查找元素时主动裁剪无用介词，提取“业务词+控件词”的短组合，大幅提高命中率。
@@ -113,3 +205,9 @@ npm run build
 ```bash
 node dist/index.js
 ```
+
+### 4. IDE 配置示例
+
+- Trae：`ide-configs/trae/`
+- Cursor：`ide-configs/cursor/`
+- 多 IDE 配置总览：`ide-configs/README.md`

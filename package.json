@@ -1,5 +1,5 @@
 {
-  "name": "node-fast-mcp-web-manual-agent",
+  "name": "mcp-web-manual-orchestrator",
   "version": "1.0.0",
   "type": "module",
   "main": "dist/index.js",

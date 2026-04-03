@@ -1,4 +1,4 @@
-export const APP_NAME = "WebManualSkills";
+export const APP_NAME = "MCP Web Manual Orchestrator";
 export const APP_VERSION = "1.0.0";
 export const BASE_MANUAL_DIR = "D:\\manuals";
 export const VIEWPORT = { width: 1280, height: 800 };
