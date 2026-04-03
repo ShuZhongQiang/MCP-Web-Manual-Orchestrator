@@ -1,0 +1,90 @@
+import { writeFileSync } from "node:fs";
+import path from "node:path";
+import { z } from "zod";
+import type { FastMCP } from "fastmcp";
+import { ENABLE_TOOL_ALIASES } from "../config.js";
+import { elementStore } from "../core/elementStore.js";
+import { stepRecorder } from "../core/stepRecorder.js";
+import type { StepRecord } from "../types.js";
+import { getRunDir, toRelativeImagePath } from "../utils/file.js";
+import { buildManualHtml } from "../utils/html.js";
+
+const parseSteps = (stepsJson: string): StepRecord[] => {
+  if (stepsJson.trim().length === 0) {
+    return [];
+  }
+  const parsed = JSON.parse(stepsJson) as unknown;
+  return z
+    .array(
+      z.object({
+        step: z.number(),
+        desc: z.string(),
+        image: z.string().optional(),
+        action: z.string().optional(),
+        status: z.enum(["SUCCESS", "FAILED", "WARNING"]).optional(),
+        errorCode: z.string().optional(),
+        retryCount: z.number().optional(),
+        latencyMs: z.number().optional(),
+        pageUrlBefore: z.string().optional(),
+        pageUrlAfter: z.string().optional(),
+        createdAt: z.string().optional(),
+      }),
+    )
+    .parse(parsed);
+};
+
+export const registerGenerateManualTool = (server: FastMCP): void => {
+  const definition = {
+    description: "生成 HTML 操作手册",
+    parameters: z.object({
+      steps_json: z.string().default("[]"),
+      run_id: z.string().min(1),
+      clear_after_generate: z.boolean().default(false),
+    }),
+    execute: async ({
+      steps_json,
+      run_id,
+      clear_after_generate,
+    }: {
+      steps_json: string;
+      run_id: string;
+      clear_after_generate: boolean;
+    }) => {
+      const runDir = getRunDir(run_id);
+      const htmlPath = path.join(runDir, "manual.html");
+
+      const inputSteps = parseSteps(steps_json);
+      const persisted = stepRecorder.get(run_id);
+      const merged = inputSteps.length > 0 ? inputSteps : persisted;
+      const sorted = [...merged].sort((a, b) => a.step - b.step);
+
+      const normalized = sorted.map((item) => ({
+        ...item,
+        image: item.image ? toRelativeImagePath(item.image, runDir) : undefined,
+      }));
+
+      const now = new Date();
+      const generatedAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+      const html = buildManualHtml(run_id, generatedAt, normalized);
+      writeFileSync(htmlPath, html, "utf-8");
+      if (clear_after_generate) {
+        stepRecorder.clear(run_id);
+        elementStore.clearRun(run_id);
+      }
+
+      return htmlPath;
+    },
+  };
+
+  server.addTool({
+    name: "generate_manual",
+    ...definition,
+  });
+
+  if (ENABLE_TOOL_ALIASES) {
+    server.addTool({
+      name: "browser.generate_manual",
+      ...definition,
+    });
+  }
+};
