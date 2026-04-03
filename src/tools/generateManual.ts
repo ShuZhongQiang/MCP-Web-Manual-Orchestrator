@@ -16,19 +16,41 @@ const parseSteps = (stepsJson: string): StepRecord[] => {
   const parsed = JSON.parse(stepsJson) as unknown;
   return z
     .array(
-      z.object({
-        step: z.number(),
-        desc: z.string(),
-        image: z.string().optional(),
-        action: z.string().optional(),
-        status: z.enum(["SUCCESS", "FAILED", "WARNING"]).optional(),
-        errorCode: z.string().optional(),
-        retryCount: z.number().optional(),
-        latencyMs: z.number().optional(),
-        pageUrlBefore: z.string().optional(),
-        pageUrlAfter: z.string().optional(),
-        createdAt: z.string().optional(),
-      }),
+      z
+        .object({
+          step: z.coerce.number(),
+          desc: z.string().optional(),
+          text: z.string().optional(),
+          image: z.string().optional(),
+          screenshot: z.string().optional(),
+          action: z.string().optional(),
+          status: z.enum(["SUCCESS", "FAILED", "WARNING"]).optional(),
+          errorCode: z.string().optional(),
+          retryCount: z.number().optional(),
+          latencyMs: z.number().optional(),
+          pageUrlBefore: z.string().optional(),
+          pageUrlAfter: z.string().optional(),
+          createdAt: z.string().optional(),
+        })
+        .transform((item): StepRecord => {
+          const desc = item.desc ?? item.text;
+          if (!desc) {
+            throw new Error(`Step ${item.step} is missing both 'desc' and 'text'`);
+          }
+          return {
+            step: item.step,
+            desc,
+            image: item.image ?? item.screenshot,
+            action: item.action,
+            status: item.status,
+            errorCode: item.errorCode,
+            retryCount: item.retryCount,
+            latencyMs: item.latencyMs,
+            pageUrlBefore: item.pageUrlBefore,
+            pageUrlAfter: item.pageUrlAfter,
+            createdAt: item.createdAt,
+          };
+        }),
     )
     .parse(parsed);
 };
