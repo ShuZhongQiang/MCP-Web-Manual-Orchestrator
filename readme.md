@@ -1,4 +1,4 @@
-# 🌐 MCP Web Manual Orchestrator
+﻿# 🌐 MCP Web Manual Orchestrator
 
 **MCP 网页操作手册编排引擎** (MCP Web Manual Orchestrator) 是一个专为大语言模型（LLM）设计的生产级 Web 自动化与操作手册生成系统。基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io) 标准，结合 Playwright 的浏览器控制能力，实现了高成功率、低 Token 消耗的网页交互与自动文档生成。
 
@@ -113,7 +113,7 @@ MCP_Web_Manual_Orchestrator/
 │   │   ├── README.md
 │   │   ├── mcp.config.example.json
 │   │   └── skills/
-│   │       └── web-manual-agent/
+│   │       └── web-manual-generator/
 │   │           └── SKILL.md    # Trae Skill 约束定义
 │   └── cursor/
 │       ├── README.md
@@ -157,7 +157,7 @@ MCP_Web_Manual_Orchestrator/
 - **固化执行编排流**：强制约定了“解析操作 -> 定位元素 -> 执行动作 -> 高亮截图 -> 生成报告”的标准 SOP。
 - **强制沙箱与审计**：要求所有操作传入 `run_id` 并在失败时捕获完整的审计字段。
 
-### 2. `ide-configs/trae/skills/web-manual-agent/SKILL.md` (低 Token 决策约束)
+### 2. `ide-configs/trae/skills/web-manual-generator/SKILL.md` (低 Token 决策约束)
 
 这是针对 Trae 这一类 AI IDE 设计的专用 Skill 配置，其核心价值在于**Token 节流与智能降级**：
 
@@ -211,3 +211,4 @@ node dist/index.js
 - Trae：`ide-configs/trae/`
 - Cursor：`ide-configs/cursor/`
 - 多 IDE 配置总览：`ide-configs/README.md`
+

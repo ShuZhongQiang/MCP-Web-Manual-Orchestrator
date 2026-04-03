@@ -1,5 +1,5 @@
 ---
-name: web-manual-agent
+name: web-manual-generator
 description: Executes web steps and generates highlighted HTML manuals. Invoke when user asks to create a web operation manual from natural-language instructions.
 ---
 

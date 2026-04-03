@@ -1,4 +1,4 @@
-# Trae 配置说明
+﻿# Trae 配置说明
 
 请在 Trae 的 MCP Server 配置中添加如下服务定义：
 
@@ -16,4 +16,5 @@
 可直接参考同目录下的 `mcp.config.example.json`。
 
 Skill 约束文件位置：
-- `skills/web-manual-agent/SKILL.md`
+- `skills/web-manual-generator/SKILL.md`
+

@@ -1,5 +1,5 @@
----
-name: "web-manual-agent"
+﻿---
+name: "web-manual-generator"
 description: "Executes web steps and generates highlighted HTML manuals. Invoke when user asks to create a web operation manual from natural-language instructions."
 ---
 
@@ -71,3 +71,4 @@ description: "Executes web steps and generates highlighted HTML manuals. Invoke 
 - `run_id` 已在执行类工具中强制要求传入，元素缓存与步骤记录按 run 维度隔离。
 - 运行审计字段包含：`status/errorCode/retryCount/latencyMs/pageUrlBefore/pageUrlAfter`。
 - `steps_json` 可为空数组；为空时优先使用运行期自动记录步骤生成手册。
+
