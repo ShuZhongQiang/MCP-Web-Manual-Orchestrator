@@ -40,11 +40,12 @@ description: "Executes web steps and generates highlighted HTML manuals. Invoke 
 - `startUrl`: 起始网页 URL（可由步骤中的第一条 navigate 推断）。
 
 ## 输出契约 (Output Contract)
-返回标准 JSON：
-- `runId`: `YYYYMMDD_HHMMSSfff`
-- `status`: `PASS | PARTIAL | FAIL`
-- `manualPath`: 最终 HTML 绝对路径
-- `steps`: 每步执行结果数组（动作、说明、截图路径、warning/error）
+以自然语言告知用户：
+- 手册生成状态（成功/部分成功/失败）
+- 手册保存的完整路径
+- 简要总结完成的步骤
+
+**不再返回 JSON 格式**
 
 ## 执行接口约定
 该 Skill 在内部按以下能力链路完成任务：
@@ -55,7 +56,7 @@ description: "Executes web steps and generates highlighted HTML manuals. Invoke 
    - 其他动作：`find_element` -> `navigate/input_text/click` -> `highlight_and_capture` -> 记录步骤。
 4. 调用 `generate_manual` 生成 HTML。
 5. 调用 `close_session` 回收浏览器内存。
-6. 汇总并返回标准 JSON 结果。
+6. 以自然语言告知用户手册生成完成及手册保存位置。
 
 ## 约束规则 (Execution Rules)
 - **零代码原则**：禁止自行编写自动化执行代码；所有网页交互必须通过预定义 Skills。

@@ -62,7 +62,7 @@
 ---
 
 ### ❗ 原则5：Agent 只负责编排，不定义 Skill 内部实现
-- Agent 负责：任务拆解、调用顺序、失败策略、状态判定、最终 JSON 汇总。
+- Agent 负责：任务拆解、调用顺序、失败策略、状态判定。
 - Skill 负责：页面导航、元素定位、交互执行、高亮截图、HTML 生成。
 
 ---
@@ -177,7 +177,7 @@ YYYYMMDD_HHMMSSfff
 ### Step 6：结束与清理
 
 - 调度 `close_session`，传入 `run_id` 关闭当前浏览器会话并回收内存。
-- 输出最终 JSON 结果。
+- 告知用户手册生成完成及手册保存位置。
 
 ---
 
@@ -234,21 +234,12 @@ YYYYMMDD_HHMMSSfff
 
 ## 七、输出格式（严格遵守）
 
-```json
-{
-  "runId": "20260330_153012123",
-  "status": "PASS",
-  "manualPath": "<projectRoot>\\manualsByAi\\run_xxx\\manual.html",
-  "steps": [
-    {
-      "step": 1,
-      "action": "click_login",
-      "status": "SUCCESS",
-      "screenshot": "1_click_login.png"
-    }
-  ]
-}
-```
+生成完成后，以自然语言告知用户：
+- 手册生成状态（成功/部分成功/失败）
+- 手册保存的完整路径
+- 简要总结完成的步骤
+
+**不再返回 JSON 格式**
 
 ---
 
