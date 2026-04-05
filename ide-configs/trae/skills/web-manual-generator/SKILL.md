@@ -91,5 +91,20 @@ description: "Executes web steps and generates highlighted HTML manuals. Invoke 
 - 运行审计字段包含：`status/errorCode/retryCount/latencyMs/pageUrlBefore/pageUrlAfter`。
 - `steps_json` 可为空数组；为空时优先使用运行期自动记录步骤生成手册。
 
+## 表单校验自愈（Mandatory）
+
+当提交动作的 `click` 返回 `VALIDATION_ERROR` 时，Skill 必须继续执行以下流程：
+
+1. 调用 `inspect_validation(run_id, max_issues?)`。
+2. 读取 `missing_fields` 与 `issues`。
+3. 逐项补齐缺失字段：
+   - 优先使用 `issues[].element_id`；
+   - 若没有可用 `element_id`，用字段短关键词调用 `find_element` 再补齐。
+4. 每个补齐动作后调用 `highlight_and_capture`。
+5. 重试原提交 `click`，最多 2 轮自愈。
+6. 若仍失败，保留 `errorCode=VALIDATION_ERROR` 并按 PARTIAL/FAIL 输出。
+
+新增工具：
+- `inspect_validation(run_id, max_issues?)`
 
 

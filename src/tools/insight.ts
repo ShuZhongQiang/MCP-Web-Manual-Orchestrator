@@ -2,10 +2,10 @@ import { z } from "zod";
 import type { FastMCP } from "fastmcp";
 import type { Locator } from "playwright";
 import { browserManager } from "../core/browser.js";
-
 import { elementStore } from "../core/elementStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
 import type { ElementSnapshot } from "../types.js";
+import { inspectValidation } from "../utils/validation.js";
 
 const INTERACTIVE_SELECTOR = "a, button, input, select, textarea, [role='button'], [onclick]";
 
@@ -150,8 +150,6 @@ export const registerInsightTools = (server: FastMCP): void => {
     ...inspectSummaryDefinition,
   });
 
-  
-
   const inspectDetailDefinition = {
     description: "Return detailed info for specified element_id",
     parameters: z.object({
@@ -195,7 +193,33 @@ export const registerInsightTools = (server: FastMCP): void => {
     ...inspectDetailDefinition,
   });
 
-  
+  const inspectValidationDefinition = {
+    description: "Inspect current page validation errors and missing required fields",
+    parameters: z.object({
+      run_id: z.string().min(1),
+      max_issues: z.number().int().min(1).max(20).default(8),
+    }),
+    execute: async ({ run_id, max_issues }: { run_id: string; max_issues: number }) => {
+      const page = await browserManager.getPage(run_id);
+      const report = await inspectValidation({
+        runId: run_id,
+        page,
+        maxIssues: max_issues,
+      });
+      return JSON.stringify({
+        run_id,
+        has_errors: report.failed,
+        summary: report.summary,
+        missing_fields: report.missingFields,
+        issues: report.issues,
+      });
+    },
+  };
+
+  server.addTool({
+    name: "inspect_validation",
+    ...inspectValidationDefinition,
+  });
 
   const elementMemoryDefinition = {
     description: "查看最近缓存的 element_id 与其摘要信息",
@@ -218,8 +242,6 @@ export const registerInsightTools = (server: FastMCP): void => {
     ...elementMemoryDefinition,
   });
 
-  
-
   const runContextDefinition = {
     description: "返回某个 run_id 的步骤上下文",
     parameters: z.object({
@@ -241,6 +263,4 @@ export const registerInsightTools = (server: FastMCP): void => {
     name: "get_run_context",
     ...runContextDefinition,
   });
-
-  
 };

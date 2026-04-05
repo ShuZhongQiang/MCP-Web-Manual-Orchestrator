@@ -8,6 +8,7 @@ import { preActionCaptureStore } from "../core/preActionCaptureStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
 import { getRunDir } from "../utils/file.js";
 import { clearHighlight, renderHighlight } from "../utils/highlight.js";
+import { buildValidationErrorMessage, inspectValidation, type ValidationReport } from "../utils/validation.js";
 
 const CLICK_NAVIGATION_WAIT_MS = 2500;
 const CLICK_URL_CHANGE_DETECT_MS = 400;
@@ -90,6 +91,7 @@ export const registerClickTool = (server: FastMCP): void => {
       });
 
       let errorCode: string | undefined;
+      let lastValidation: ValidationReport | undefined;
       for (let retry = 0; retry <= retry_count; retry += 1) {
         try {
           const locator = await elementStore.get(run_id, element_id);
@@ -106,35 +108,10 @@ export const registerClickTool = (server: FastMCP): void => {
           }
           await page.waitForTimeout(120);
 
-          // Generic validation/error detection after click (表单校验/错误提示)
-          const validation = await page.evaluate(() => {
-            const selectors = [
-              ".ant-form-item-explain-error",
-              ".ant-message-error",
-              ".ant-notification-notice-message",
-              ".el-form-item__error",
-              ".el-message--error",
-              ".alert-danger",
-              ".invalid-feedback",
-              "[aria-invalid=\"true\"]",
-            ];
-            for (const sel of selectors) {
-              const el = document.querySelector(sel) as HTMLElement | null;
-              if (el && (el.offsetParent !== null || getComputedStyle(el).display !== "none")) {
-                const text = (el.textContent || "").trim().slice(0, 200);
-                return { failed: true, message: text || sel };
-              }
-            }
-            const body = document.body?.innerText || "";
-            const re = /(必填|必填项|不能为空|请填写|校验失败|验证失败|Required|is required)/i;
-            if (re.test(body)) {
-              return { failed: true, message: body.match(re)?.[0] || "VALIDATION" };
-            }
-            return { failed: false };
-          });
-
+          const validation = await inspectValidation({ runId: run_id, page });
           const status: "FAILED" | "SUCCESS" = validation.failed ? "FAILED" : "SUCCESS";
           if (validation.failed) {
+            lastValidation = validation;
             errorCode = "VALIDATION_ERROR";
           }
 
@@ -143,6 +120,7 @@ export const registerClickTool = (server: FastMCP): void => {
             desc,
             action: "click",
             status,
+            errorCode,
             retryCount: retry,
             latencyMs: Date.now() - startedAt,
             pageUrlBefore,
@@ -151,12 +129,16 @@ export const registerClickTool = (server: FastMCP): void => {
           });
 
           if (validation.failed) {
-            throw new Error("Click resulted in validation error");
+            throw new Error(buildValidationErrorMessage(validation));
           }
 
           return "Clicked successfully";
-        } catch {
-          errorCode = errorCode ?? "CLICK_FAILED";
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const isValidationError = message.startsWith("VALIDATION_ERROR");
+          if (!isValidationError) {
+            errorCode = errorCode ?? "CLICK_FAILED";
+          }
           if (retry < retry_count) {
             await page.waitForTimeout(200 * (retry + 1));
           }
@@ -167,13 +149,16 @@ export const registerClickTool = (server: FastMCP): void => {
         desc,
         action: "click",
         status: "FAILED",
-        errorCode,
+        errorCode: errorCode ?? (lastValidation ? "VALIDATION_ERROR" : "CLICK_FAILED"),
         retryCount: retry_count,
         latencyMs: Date.now() - startedAt,
         pageUrlBefore,
         pageUrlAfter: page.url(),
         createdAt: new Date().toISOString(),
       });
+      if (lastValidation) {
+        throw new Error(buildValidationErrorMessage(lastValidation));
+      }
       throw new Error("Click failed after retries");
     },
   };
@@ -182,6 +167,4 @@ export const registerClickTool = (server: FastMCP): void => {
     name: "click",
     ...definition,
   });
-
-  
 };

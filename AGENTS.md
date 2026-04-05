@@ -263,3 +263,23 @@ YYYYMMDD_HHMMSSfff
 
 ---
 
+## 十、表单校验自愈（必须执行）
+
+当执行“提交/保存/确认”类 `click` 后出现表单校验失败时，必须进入自愈流程，禁止直接结束任务。
+
+### 自愈流程
+
+1. 解析 `click` 返回的 `VALIDATION_ERROR` 信息。
+2. 调用 `inspect_validation(run_id, max_issues?)` 获取 `missing_fields` 与 `issues`。
+3. 对缺失字段逐一补齐：
+   - 若 `issues` 中存在可用 `element_id`，优先直接对该元素执行输入或选择动作；
+   - 若不存在可用 `element_id`，使用字段短关键词（如“种类 下拉框”）调用 `find_element` 再补齐。
+4. 每个补齐动作完成后必须调用 `highlight_and_capture`。
+5. 补齐后重试原提交 `click`。
+6. 最多执行 2 轮“识别缺失字段 → 补齐 → 重试提交”；仍失败则记录 `errorCode=VALIDATION_ERROR`，并按 PARTIAL/FAIL 处理。
+
+### 自愈审计要求
+
+- 必须记录：缺失字段、补齐动作、重试次数、最终状态。
+- 自愈过程中的关键步骤必须有截图。
+

@@ -46,3 +46,14 @@
 4. 最后生成 HTML 手册
 5. 关闭会话
 
+## 表单校验自愈规则
+
+如果提交类 `click` 返回 `VALIDATION_ERROR`，不要直接结束，必须执行：
+
+1. 调用 `inspect_validation(run_id)` 获取 `missing_fields` 和 `issues`。
+2. 补齐缺失字段（优先使用 `issues[].element_id`，否则回退 `find_element`）。
+3. 每个补齐动作都调用 `highlight_and_capture`。
+4. 重试提交 `click`，最多执行 2 轮自愈。
+
+新增工具：
+12. **inspect_validation** - 检查当前页面校验错误与缺失必填项

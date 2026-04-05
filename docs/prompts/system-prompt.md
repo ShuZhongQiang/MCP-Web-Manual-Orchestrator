@@ -263,3 +263,23 @@ YYYYMMDD_HHMMSSfff
 
 ---
 
+## 十、表单校验自愈（必须执行）
+
+当提交类 `click` 触发表单校验失败时，Agent 必须继续执行自愈，而不是直接失败退出。
+
+### 固定自愈链路
+
+1. 读取 `click` 返回的 `VALIDATION_ERROR`。
+2. 调用 `inspect_validation(run_id, max_issues?)` 获取缺失字段与可操作线索。
+3. 按 `missing_fields` 逐项补齐：
+   - 优先使用 `issues[].element_id` 直接操作；
+   - 无可用 `element_id` 时，用字段短关键词重新 `find_element` 后补齐。
+4. 每次补齐后必须调用 `highlight_and_capture`。
+5. 补齐后重试原提交 `click`。
+6. 最多重试 2 轮自愈，仍失败则记录 `errorCode=VALIDATION_ERROR` 并进入 PARTIAL/FAIL 判定。
+
+### 自愈审计
+
+- 必须记录：缺失字段、补齐动作、重试次数、最终状态。
+- 自愈关键步骤必须保留截图。
+

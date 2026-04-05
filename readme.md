@@ -245,3 +245,10 @@ node dist/index.js
 - Cursor：`ide-configs/cursor/`
 - 多 IDE 配置总览：`ide-configs/README.md`
 
+## 表单校验自愈（Form Validation Self-Healing）
+
+项目已支持提交失败后的结构化校验诊断与自愈流程：
+
+- `click` 在校验失败时返回结构化 `VALIDATION_ERROR`，包含 `missing_fields` 与问题摘要。
+- 新增 `inspect_validation(run_id, max_issues?)`，可返回缺失字段与可复用 `element_id` 线索。
+- 推荐编排：识别校验失败 -> 补齐必填字段 -> 截图留痕 -> 重试提交（最多 2 轮）。
