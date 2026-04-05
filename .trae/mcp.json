@@ -1,13 +1,11 @@
 {
   "mcpServers": {
-    "web-manual": {
+    "mcp-web-manual-orchestrator": {
       "command": "node",
       "args": [
-        "D:\\AI-agent\\Node_Fast_Mcp_Web_Manual_Agent\\dist\\index.js"
+        "D:/Ai_agent/dist/index.js"
       ],
-      "cwd": [
-        "D:\\AI-agent\\Node_Fast_Mcp_Web_Manual_Agent\\dist\\index.js"
-      ]
+      "cwd": "D:/Ai_agent"
     }
   }
 }
