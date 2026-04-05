@@ -1,9 +1,25 @@
 ---
 name: "web-manual-generator"
-description: "Executes web steps and generates highlighted HTML manuals. Invoke when user asks to create a web operation manual from natural-language instructions."
+description: "Executes web steps and generates highlighted HTML manuals. Invoke when user asks to create a web operation manual from natural-language instructions. MUST USE MCP TOOLS ONLY - DO NOT WRITE ANY CODE OR SCRIPTS YOURSELF."
 ---
 
 # Web Manual Generator Skill
+
+## ⚠️ 最优先规则（必须第一遵守）
+
+**❗❗ 绝对禁止自行编写任何代码或脚本。所有网页操作必须通过调用 MCP 提供的工具完成。你只能做编排和调度，不能自己实现任何自动化逻辑。❗❗**
+
+你**不能**：
+- ❌ 编写 Playwright、Puppeteer 或其他自动化代码
+- ❌ 编写 JavaScript/TypeScript 脚本
+- ❌ 自行实现点击、输入、截图等操作
+
+你**只能**：
+- ✅ 调用 MCP 提供的工具（navigate, find_element, click, input_text, highlight_and_capture, generate_manual 等）
+- ✅ 编排工具调用顺序
+- ✅ 聚合和记录执行结果
+
+---
 
 ## 能力定位
 该 Skill 仅负责“网页操作手册产出能力”：接收自然语言流程，调用既有网页操作工具，输出带高亮截图的 HTML 手册。

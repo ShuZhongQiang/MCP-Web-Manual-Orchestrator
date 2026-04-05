@@ -1,4 +1,4 @@
-﻿# 🌐 MCP Web Manual Orchestrator
+# 🌐 MCP Web Manual Orchestrator
 
 **MCP 网页操作手册编排引擎** (MCP Web Manual Orchestrator) 是一个专为大语言模型（LLM）设计的生产级 Web 自动化与操作手册生成系统。基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io) 标准，结合 Playwright 的浏览器控制能力，实现了高成功率、低 Token 消耗的网页交互与自动文档生成。
 
@@ -157,13 +157,46 @@ MCP_Web_Manual_Orchestrator/
 - **固化执行编排流**：默认遵循“解析操作 -> 定位元素 -> 执行动作 -> 高亮截图 -> 生成报告”；对会导致元素消失的 `click`，允许“先高亮截图再点击”并在失败时回退到点击前截图。
 - **强制沙箱与审计**：要求所有操作传入 `run_id` 并在失败时捕获完整的审计字段。
 
-### 2. `ide-configs/trae/skills/web-manual-generator/SKILL.md` (低 Token 决策约束)
+### 2. `docs/prompts/default-system-prompt.md` (默认系统提示)
+
+这是一个轻量级的默认系统提示，**即使没有完整的 Agent 描述也能确保 AI 正确调用 MCP 工具**。它的核心特点是：
+
+- **在开头就强烈禁止自行编写代码**：用最醒目的方式强调必须使用 MCP 工具
+- **明确列出可用工具**：让 AI 知道可以调用哪些工具
+- **提供基础工作流程**：指导 AI 如何按顺序使用工具
+
+### 3. `ide-configs/trae/skills/web-manual-generator/SKILL.md` (低 Token 决策约束)
 
 这是针对 Trae 这一类 AI IDE 设计的专用 Skill 配置，其核心价值在于**Token 节流与智能降级**：
 
+- **在开头添加最强约束**：第一句就明确禁止自行编写代码，必须使用 MCP 工具
 - **结构探测懒加载**：默认禁止一开始就拉取全量页面 DOM（极度消耗 Token），而是优先盲狙（`find_element`）。只有在盲狙失败、歧义过高或状态异常时，才触发 `inspect_summary` 扫视页面。
 - **回退链路（Fallback）**：定义了 `稳定选择器 -> 语义匹配 -> 页面摘要` 的标准降级搜索顺序。
 - **关键词截断**：指导模型在查找元素时主动裁剪无用介词，提取“业务词+控件词”的短组合，大幅提高命中率。
+
+---
+
+## ⚠️ 关键配置：确保 AI 不自行写脚本
+
+为了避免 AI 在缺少 Agent 描述时自己写脚本而不调用 MCP，请确保以下配置：
+
+### 必须配置项：
+
+1. **SKILL 定义中的 description 字段必须包含关键约束**
+   - 在 `.trae/skills/web-manual-generator/SKILL.md` 的 description 中添加：`"MUST USE MCP TOOLS ONLY - DO NOT WRITE ANY CODE OR SCRIPTS YOURSELF"`
+
+2. **SKILL 内容开头必须有最优先规则**
+   - 在 SKILL.md 的最顶部添加醒目的禁止自行写代码的规则
+   - 用加粗、感叹号等方式强调这是最高优先级
+
+3. **提供默认系统提示作为后备**
+   - 使用 `docs/prompts/default-system-prompt.md` 作为默认系统提示
+   - 这样即使没有完整的 Agent 描述，AI 也有基础约束
+
+### 推荐使用方式：
+
+- **最佳实践**：同时配置完整的 Agent 描述 + SKILL + 默认系统提示
+- **最小配置**：至少配置 SKILL（已包含最强约束）
 
 ## 🛠️ 提供的 MCP 工具列表 (Tools)
 
