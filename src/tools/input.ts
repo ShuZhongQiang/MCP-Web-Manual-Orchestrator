@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { FastMCP } from "fastmcp";
 import { browserManager } from "../core/browser.js";
-import { ENABLE_TOOL_ALIASES } from "../config.js";
+
 import { elementStore } from "../core/elementStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
 
@@ -79,10 +79,5 @@ export const registerInputTool = (server: FastMCP): void => {
     ...definition,
   });
 
-  if (ENABLE_TOOL_ALIASES) {
-    server.addTool({
-      name: "browser.input",
-      ...definition,
-    });
-  }
+  
 };

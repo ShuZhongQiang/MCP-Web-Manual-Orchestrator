@@ -3,7 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { FastMCP } from "fastmcp";
 import { browserManager } from "../core/browser.js";
-import { ENABLE_TOOL_ALIASES, SCREENSHOT_RENDER_WAIT_MS } from "../config.js";
+import { SCREENSHOT_RENDER_WAIT_MS } from "../config.js";
 import { elementStore } from "../core/elementStore.js";
 import { preActionCaptureStore } from "../core/preActionCaptureStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
@@ -12,7 +12,7 @@ import { clearHighlight, renderHighlight } from "../utils/highlight.js";
 
 export const registerScreenshotTool = (server: FastMCP): void => {
   const definition = {
-    description: "高亮元素并截图",
+    description: "Capture highlighted element screenshot",
     parameters: z.object({
       element_id: z.string().min(1),
       step: z.number().int().nonnegative().optional(),
@@ -121,10 +121,5 @@ export const registerScreenshotTool = (server: FastMCP): void => {
     ...definition,
   });
 
-  if (ENABLE_TOOL_ALIASES) {
-    server.addTool({
-      name: "browser.screenshot",
-      ...definition,
-    });
-  }
+  
 };

@@ -2,7 +2,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { FastMCP } from "fastmcp";
 import { browserManager } from "../core/browser.js";
-import { ENABLE_TOOL_ALIASES, SCREENSHOT_RENDER_WAIT_MS } from "../config.js";
+import { SCREENSHOT_RENDER_WAIT_MS } from "../config.js";
 import { elementStore } from "../core/elementStore.js";
 import { preActionCaptureStore } from "../core/preActionCaptureStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
@@ -183,10 +183,5 @@ export const registerClickTool = (server: FastMCP): void => {
     ...definition,
   });
 
-  if (ENABLE_TOOL_ALIASES) {
-    server.addTool({
-      name: "browser.click",
-      ...definition,
-    });
-  }
+  
 };

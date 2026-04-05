@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { FastMCP } from "fastmcp";
 import type { Locator } from "playwright";
 import { browserManager } from "../core/browser.js";
-import { ENABLE_TOOL_ALIASES } from "../config.js";
+
 import { elementStore } from "../core/elementStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
 import type { ElementSnapshot } from "../types.js";
@@ -150,23 +150,10 @@ export const registerInsightTools = (server: FastMCP): void => {
     ...inspectSummaryDefinition,
   });
 
-  if (ENABLE_TOOL_ALIASES) {
-    server.addTool({
-      name: "inspect_page",
-      ...inspectSummaryDefinition,
-    });
-    server.addTool({
-      name: "browser.inspect_page",
-      ...inspectSummaryDefinition,
-    });
-    server.addTool({
-      name: "browser.inspect_summary",
-      ...inspectSummaryDefinition,
-    });
-  }
+  
 
   const inspectDetailDefinition = {
-    description: "返回指定 element_id 的详细信息",
+    description: "Return detailed info for specified element_id",
     parameters: z.object({
       run_id: z.string().min(1),
       element_ids: z.array(z.string().min(1)).min(1).max(200),
@@ -208,12 +195,7 @@ export const registerInsightTools = (server: FastMCP): void => {
     ...inspectDetailDefinition,
   });
 
-  if (ENABLE_TOOL_ALIASES) {
-    server.addTool({
-      name: "browser.inspect_detail",
-      ...inspectDetailDefinition,
-    });
-  }
+  
 
   const elementMemoryDefinition = {
     description: "查看最近缓存的 element_id 与其摘要信息",
@@ -236,12 +218,7 @@ export const registerInsightTools = (server: FastMCP): void => {
     ...elementMemoryDefinition,
   });
 
-  if (ENABLE_TOOL_ALIASES) {
-    server.addTool({
-      name: "browser.list_elements",
-      ...elementMemoryDefinition,
-    });
-  }
+  
 
   const runContextDefinition = {
     description: "返回某个 run_id 的步骤上下文",
@@ -265,10 +242,5 @@ export const registerInsightTools = (server: FastMCP): void => {
     ...runContextDefinition,
   });
 
-  if (ENABLE_TOOL_ALIASES) {
-    server.addTool({
-      name: "browser.get_run_context",
-      ...runContextDefinition,
-    });
-  }
+  
 };

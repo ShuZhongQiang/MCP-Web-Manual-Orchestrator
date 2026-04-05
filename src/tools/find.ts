@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { FastMCP } from "fastmcp";
 import type { Locator } from "playwright";
 import { browserManager } from "../core/browser.js";
-import { ELEMENT_WAIT_TIMEOUT_MS, ENABLE_TOOL_ALIASES } from "../config.js";
+import { ELEMENT_WAIT_TIMEOUT_MS } from "../config.js";
 import { elementStore } from "../core/elementStore.js";
 import type { ElementCandidate, ElementSnapshot } from "../types.js";
 
@@ -168,10 +168,5 @@ export const registerFindTool = (server: FastMCP): void => {
     ...definition,
   });
 
-  if (ENABLE_TOOL_ALIASES) {
-    server.addTool({
-      name: "browser.find",
-      ...definition,
-    });
-  }
+  
 };

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { browserManager } from "../core/browser.js";
 import type { FastMCP } from "fastmcp";
-import { ENABLE_TOOL_ALIASES } from "../config.js";
+
 import { stepRecorder } from "../core/stepRecorder.js";
 
 export const registerNavigateTool = (server: FastMCP): void => {
@@ -53,10 +53,5 @@ export const registerNavigateTool = (server: FastMCP): void => {
     ...definition,
   });
 
-  if (ENABLE_TOOL_ALIASES) {
-    server.addTool({
-      name: "browser.navigate",
-      ...definition,
-    });
-  }
+  
 };

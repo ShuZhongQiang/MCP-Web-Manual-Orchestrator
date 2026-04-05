@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { FastMCP } from "fastmcp";
-import { ENABLE_TOOL_ALIASES } from "../config.js";
+
 import { elementStore } from "../core/elementStore.js";
 import { preActionCaptureStore } from "../core/preActionCaptureStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
@@ -105,10 +105,5 @@ export const registerGenerateManualTool = (server: FastMCP): void => {
     ...definition,
   });
 
-  if (ENABLE_TOOL_ALIASES) {
-    server.addTool({
-      name: "browser.generate_manual",
-      ...definition,
-    });
-  }
+  
 };
