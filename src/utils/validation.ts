@@ -438,7 +438,7 @@ const collectRawValidationIssues = async (page: Page, maxIssues: number): Promis
   );
 };
 
-const resolveIssueLocator = async (
+export const resolveIssueLocator = async (
   page: Page,
   issue: RawValidationIssue,
   fallbackField?: string,

@@ -18,6 +18,8 @@ const INPUT_INTENT_RE =
 const INTERACTIVE_SELECTOR =
   "a, button, input, select, textarea, option, [role='button'], [role='combobox'], [role='option'], [onclick], .ant-select-selector, .el-select";
 
+const EXCLUDED_CELL_CLASSES = /cell|el-table__cell|td|th/i;
+
 const getElementSnapshot = async (locator: Locator): Promise<ElementSnapshot> => {
   return locator.evaluate((el) => {
     const element = el as HTMLElement;
@@ -82,6 +84,9 @@ const matchesTarget = (searchable: string, target: string): boolean => {
 };
 
 const isInteractiveSnapshot = (snapshot: ElementSnapshot): boolean => {
+  if (EXCLUDED_CELL_CLASSES.test(snapshot.className) || ["td", "th"].includes(snapshot.tag.toLowerCase())) {
+    return false;
+  }
   const tag = snapshot.tag.toLowerCase();
   const role = snapshot.role.toLowerCase();
   if (["a", "button", "input", "select", "textarea", "option"].includes(tag)) {

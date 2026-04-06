@@ -9,7 +9,8 @@ type StoredElement = {
   createdAt: string;
 };
 
-const INTERACTIVE_SELECTOR = "a, button, input, select, textarea, [role='button'], [onclick]";
+const INTERACTIVE_SELECTOR =
+  "a, button, input, select, textarea, option, [role='button'], [role='combobox'], [role='option'], [role='menuitem'], [onclick], .ant-select-selector, .ant-select-item-option-content, .el-select, .el-select-dropdown__item";
 
 const normalize = (value: string): string => value.trim().replace(/\s+/g, " ").toLowerCase();
 
@@ -115,6 +116,22 @@ class ElementStore {
     }
     if (snapshot.placeholder) {
       candidates.push(page.getByPlaceholder(snapshot.placeholder));
+    }
+    if (snapshot.role === "combobox") {
+      candidates.push(page.getByRole("combobox", { name: snapshot.ariaLabel || snapshot.text || snapshot.nameAttr }));
+    }
+    if (snapshot.role === "option") {
+      candidates.push(page.getByRole("option", { name: snapshot.text || snapshot.ariaLabel || snapshot.nameAttr }));
+    }
+    if (snapshot.className) {
+      const classTokens = snapshot.className
+        .split(/\s+/)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 2)
+        .slice(0, 3);
+      for (const token of classTokens) {
+        candidates.push(page.locator(`.${token}`));
+      }
     }
     if (snapshot.text) {
       candidates.push(page.getByText(snapshot.text, { exact: false }));
