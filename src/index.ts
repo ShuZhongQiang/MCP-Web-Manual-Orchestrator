@@ -4,6 +4,7 @@ import { APP_NAME, APP_VERSION, BASE_MANUAL_DIR, PROJECT_ROOT } from "./config.j
 import { browserManager } from "./core/browser.js";
 import { elementStore } from "./core/elementStore.js";
 import { preActionCaptureStore } from "./core/preActionCaptureStore.js";
+import { selfHealStore } from "./core/selfHealStore.js";
 import { stepRecorder } from "./core/stepRecorder.js";
 import { registerClickTool } from "./tools/click.js";
 import { registerFindTool } from "./tools/find.js";
@@ -37,6 +38,7 @@ const main = async () => {
       await browserManager.closeContext(run_id);
       elementStore.clearRun(run_id);
       preActionCaptureStore.clearRun(run_id);
+      selfHealStore.clearRun(run_id);
       stepRecorder.clear(run_id);
       return `Session ${run_id} closed successfully`;
     },

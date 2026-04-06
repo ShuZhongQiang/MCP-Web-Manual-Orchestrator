@@ -54,6 +54,7 @@
 2. 补齐缺失字段（优先使用 `issues[].element_id`，否则回退 `find_element`）。
 3. 每个补齐动作都调用 `highlight_and_capture`。
 4. 重试提交 `click`，最多执行 2 轮自愈。
+5. 若返回 `SELF_HEAL_LIMIT_REACHED`，立即停止自愈，不再继续补填、截图或重试提交。
 
 新增工具：
 12. **inspect_validation** - 检查当前页面校验错误与缺失必填项

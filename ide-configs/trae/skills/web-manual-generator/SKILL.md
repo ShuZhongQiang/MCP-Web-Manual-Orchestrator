@@ -103,8 +103,8 @@ description: "Executes web steps and generates highlighted HTML manuals. Invoke 
 4. 每个补齐动作后调用 `highlight_and_capture`。
 5. 重试原提交 `click`，最多 2 轮自愈。
 6. 若仍失败，保留 `errorCode=VALIDATION_ERROR` 并按 PARTIAL/FAIL 输出。
+7. 若 `click` 返回 `SELF_HEAL_LIMIT_REACHED`，必须立即停止自愈循环，不再执行补填、截图、重试提交。
 
 新增工具：
 - `inspect_validation(run_id, max_issues?)`
-
 

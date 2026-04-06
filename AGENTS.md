@@ -277,9 +277,9 @@ YYYYMMDD_HHMMSSfff
 4. 每个补齐动作完成后必须调用 `highlight_and_capture`。
 5. 补齐后重试原提交 `click`。
 6. 最多执行 2 轮“识别缺失字段 → 补齐 → 重试提交”；仍失败则记录 `errorCode=VALIDATION_ERROR`，并按 PARTIAL/FAIL 处理。
+7. 若 `click` 返回 `SELF_HEAL_LIMIT_REACHED`，必须立即停止自愈循环，禁止继续补填、截图或再次提交。
 
 ### 自愈审计要求
 
 - 必须记录：缺失字段、补齐动作、重试次数、最终状态。
 - 自愈过程中的关键步骤必须有截图。
-
