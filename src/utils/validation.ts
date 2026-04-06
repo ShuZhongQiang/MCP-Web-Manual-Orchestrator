@@ -21,7 +21,7 @@ const VALIDATION_HINT_RE = new RegExp(
 );
 
 const CONTROL_SELECTOR =
-  "input, select, textarea, [role='combobox'], [contenteditable='true'], .ant-select-selector, .el-select, .el-input__inner";
+  "input, select, textarea, [role='combobox'], [role='textbox'], [contenteditable='true'], .ant-select-selector, .el-select, .el-input__inner";
 
 type RawValidationIssue = {
   message: string;
@@ -184,6 +184,100 @@ const collectRawValidationIssues = async (page: Page, maxIssues: number): Promis
         return undefined;
       };
 
+      const isDisabledControl = (control: HTMLElement): boolean => {
+        const inputLike = control as HTMLInputElement;
+        return Boolean(inputLike.disabled) || control.getAttribute("aria-disabled") === "true";
+      };
+
+      const hasRequiredClassName = (className: string): boolean => {
+        return /(required|is-required|ant-form-item-required)/i.test(className);
+      };
+
+      const isRequiredControl = (control: HTMLElement): boolean => {
+        const inputLike = control as HTMLInputElement;
+        if (inputLike.required) {
+          return true;
+        }
+        if (control.getAttribute("aria-required") === "true") {
+          return true;
+        }
+        if ((control.getAttribute("data-required") ?? "").toLowerCase() === "true") {
+          return true;
+        }
+        if (hasRequiredClassName(String(control.className ?? ""))) {
+          return true;
+        }
+
+        const container = control.closest(
+          ".ant-form-item, .el-form-item, .form-group, [class*='form-item'], [class*='field']",
+        ) as HTMLElement | null;
+        if (!container) {
+          return false;
+        }
+        if ((container.getAttribute("data-required") ?? "").toLowerCase() === "true") {
+          return true;
+        }
+        if (hasRequiredClassName(String(container.className ?? ""))) {
+          return true;
+        }
+        const label = container.querySelector(
+          "label, .ant-form-item-label label, .el-form-item__label, [data-field-label]",
+        ) as HTMLElement | null;
+        const labelText = normalizeText(label?.textContent ?? "");
+        if (labelText.length > 0 && (/[*＊]/.test(labelText) || /\u5fc5\u586b/.test(labelText))) {
+          return true;
+        }
+        if (label && hasRequiredClassName(String(label.className ?? ""))) {
+          return true;
+        }
+        return false;
+      };
+
+      const isControlEmpty = (control: HTMLElement): boolean => {
+        const tag = control.tagName.toLowerCase();
+        if (tag === "input") {
+          const input = control as HTMLInputElement;
+          const type = (input.type ?? "").toLowerCase();
+          if (type === "hidden") {
+            return false;
+          }
+          if (["button", "submit", "reset"].includes(type)) {
+            return false;
+          }
+          if (["checkbox", "radio"].includes(type)) {
+            return !input.checked;
+          }
+          if (type === "file") {
+            return (input.files?.length ?? 0) === 0;
+          }
+          return normalizeText(input.value ?? "").length === 0;
+        }
+        if (tag === "textarea") {
+          const textarea = control as HTMLTextAreaElement;
+          return normalizeText(textarea.value ?? "").length === 0;
+        }
+        if (tag === "select") {
+          const select = control as HTMLSelectElement;
+          if (select.multiple) {
+            return select.selectedOptions.length === 0;
+          }
+          return normalizeText(select.value ?? "").length === 0;
+        }
+        if (control.getAttribute("contenteditable") === "true") {
+          return normalizeText(control.textContent ?? "").length === 0;
+        }
+        const className = String(control.className ?? "");
+        if (/(ant-select|el-select|selector|dropdown)/i.test(className) || control.getAttribute("role") === "combobox") {
+          const text = normalizeText(control.textContent ?? "");
+          return text.length === 0 || /^(?:\u8bf7\u9009\u62e9|please select|select)$/i.test(text);
+        }
+        const ariaValueText = normalizeText(control.getAttribute("aria-valuetext") ?? "");
+        if (ariaValueText.length > 0) {
+          return false;
+        }
+        return normalizeText(control.textContent ?? "").length === 0;
+      };
+
       const getControlInfo = (origin: Element): RawValidationIssue["control"] | undefined => {
         const current = origin as HTMLElement;
         let control: HTMLElement | null = null;
@@ -219,7 +313,14 @@ const collectRawValidationIssues = async (page: Page, maxIssues: number): Promis
           ".ant-form-item, .el-form-item, .form-group, [class*='form-item'], [class*='field']",
         ) as HTMLElement | null;
         if (!container) {
-          return undefined;
+          const html = origin as HTMLElement;
+          const idAttr = html.id?.trim();
+          if (!idAttr) {
+            return undefined;
+          }
+          const label = document.querySelector(`label[for="${idAttr.replace(/["\\]/g, "\\$&")}"]`) as HTMLElement | null;
+          const text = normalizeText(label?.textContent ?? "");
+          return text || undefined;
         }
         const label = container.querySelector(
           "label, .ant-form-item-label label, .el-form-item__label, [data-field-label]",
@@ -268,6 +369,45 @@ const collectRawValidationIssues = async (page: Page, maxIssues: number): Promis
             source: selector,
             label: getLabel(node),
             fieldHint: parseFieldHint(message),
+            control: getControlInfo(node),
+          });
+        }
+      }
+
+      if (items.length < maxItems) {
+        const controls = Array.from(document.querySelectorAll(controlSelector));
+        for (const node of controls) {
+          if (items.length >= maxItems) {
+            break;
+          }
+          if (!(node instanceof HTMLElement)) {
+            continue;
+          }
+          if (!isVisible(node) || isDisabledControl(node)) {
+            continue;
+          }
+          const inputNode = node as HTMLInputElement;
+          if ((inputNode.type ?? "").toLowerCase() === "hidden") {
+            continue;
+          }
+          if (!isRequiredControl(node) || !isControlEmpty(node)) {
+            continue;
+          }
+          const label = getLabel(node);
+          const fieldHint = normalizeText(
+            label ??
+              node.getAttribute("aria-label") ??
+              node.getAttribute("placeholder") ??
+              node.getAttribute("name") ??
+              node.getAttribute("id") ??
+              "",
+          );
+          const message = fieldHint.length > 0 ? `${fieldHint} 为必填项` : "存在未填写必填项";
+          addIssue({
+            message,
+            source: "required-empty",
+            label,
+            fieldHint: fieldHint || undefined,
             control: getControlInfo(node),
           });
         }

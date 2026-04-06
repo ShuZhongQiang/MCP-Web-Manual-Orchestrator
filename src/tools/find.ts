@@ -9,6 +9,12 @@ import type { ElementCandidate, ElementSnapshot } from "../types.js";
 const VALIDATION_HINT_RE =
   /(?:\u5fc5\u586b|\u4e0d\u80fd\u4e3a\u7a7a|\u8bf7\u586b\u5199|\u8bf7\u8f93\u5165|\u8bf7\u9009\u62e9|\u6821\u9a8c\u5931\u8d25|\u9a8c\u8bc1\u5931\u8d25|required|is required|cannot be empty|must be filled)/i;
 const FIELD_PREFIX_RE = /^\u8bf7(?:\u9009\u62e9|\u586b\u5199|\u8f93\u5165)\s*/i;
+const ACTION_PREFIX_RE = /^(?:\u8bf7)?(?:\u70b9\u51fb|\u70b9\u6309|\u5355\u51fb|click|tap)\s*/i;
+const CONTROL_SUFFIX_RE =
+  /(?:\u6309\u94ae|\u94fe\u63a5|\u8f93\u5165\u6846|\u6587\u672c\u6846|\u4e0b\u62c9\u6846|\u4e0b\u62c9|\u9009\u9879|\u9009\u62e9\u5668|button|link|input|textbox|combobox|select|field)$/i;
+const CLICK_INTENT_RE = /(?:\u70b9\u51fb|\u70b9\u6309|\u5355\u51fb|click|tap|button|\u6309\u94ae|\u94fe\u63a5)/i;
+const INPUT_INTENT_RE =
+  /(?:\u8f93\u5165|\u586b\u5199|\u8f93\u5165\u6846|\u6587\u672c\u6846|\u4e0b\u62c9|\u9009\u62e9|input|textbox|combobox|select|field)/i;
 const INTERACTIVE_SELECTOR =
   "a, button, input, select, textarea, option, [role='button'], [role='combobox'], [role='option'], [onclick], .ant-select-selector, .el-select";
 
@@ -35,14 +41,38 @@ const isLikelyCssSelector = (target: string): boolean => {
 
 const normalize = (value: string): string => value.trim().toLowerCase();
 
+const sanitizeTarget = (value: string): string => value.trim().replace(/[“”"'`]/g, "").replace(/\s+/g, " ");
+
+const buildLookupTargets = (target: string): string[] => {
+  const variants = new Set<string>();
+  const addVariant = (value: string): void => {
+    const normalized = sanitizeTarget(value);
+    if (normalized.length > 0) {
+      variants.add(normalized);
+    }
+  };
+
+  const strippedField = target.replace(FIELD_PREFIX_RE, "");
+  const strippedAction = strippedField.replace(ACTION_PREFIX_RE, "");
+  const strippedControl = strippedAction.replace(CONTROL_SUFFIX_RE, "");
+
+  addVariant(target);
+  addVariant(strippedField);
+  addVariant(strippedAction);
+  addVariant(strippedControl);
+
+  return [...variants];
+};
+
 const toSearchTokens = (target: string): string[] => {
-  const normalized = normalize(target);
-  const stripped = normalize(target.replace(FIELD_PREFIX_RE, ""));
-  const parts = normalized
-    .split(/[\s,\uFF0C\u3002.!?\uFF01\uFF1F:\uFF1A]+/)
-    .map((item) => item.trim())
-    .filter((item) => item.length >= 2);
-  const tokens = new Set<string>([normalized, stripped, ...parts]);
+  const lookupTargets = buildLookupTargets(target).map((item) => normalize(item));
+  const parts = lookupTargets.flatMap((item) =>
+    item
+      .split(/[\s,\uFF0C\u3002.!?\uFF01\uFF1F:\uFF1A]+/)
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length >= 2),
+  );
+  const tokens = new Set<string>([...lookupTargets, ...parts]);
   return [...tokens].filter((item) => item.length > 0);
 };
 
@@ -61,6 +91,41 @@ const isInteractiveSnapshot = (snapshot: ElementSnapshot): boolean => {
     return true;
   }
   return /(ant-select|el-select|dropdown|selector)/i.test(snapshot.className);
+};
+
+const isInputLikeSnapshot = (snapshot: ElementSnapshot): boolean => {
+  const tag = snapshot.tag.toLowerCase();
+  const role = snapshot.role.toLowerCase();
+  if (["input", "select", "textarea", "option"].includes(tag)) {
+    return true;
+  }
+  if (["combobox", "textbox", "spinbutton", "listbox"].includes(role)) {
+    return true;
+  }
+  return /(ant-select|el-select|input|textarea|combobox|selector)/i.test(snapshot.className);
+};
+
+const getScoreBias = (target: string, strategyName: string, snapshot: ElementSnapshot): number => {
+  const interactive = isInteractiveSnapshot(snapshot);
+  const inputLike = isInputLikeSnapshot(snapshot);
+  const normalizedTarget = normalize(target);
+  const hasClickIntent = CLICK_INTENT_RE.test(normalizedTarget);
+  const hasInputIntent = INPUT_INTENT_RE.test(normalizedTarget);
+
+  let scoreBias = interactive ? 24 : -8;
+  if (strategyName.startsWith("text") && !interactive) {
+    scoreBias -= 24;
+  }
+  if (strategyName.startsWith("text") && /^h[1-6]$/.test(snapshot.tag.toLowerCase())) {
+    scoreBias -= 16;
+  }
+  if (hasClickIntent) {
+    scoreBias += interactive ? 28 : -55;
+  }
+  if (hasInputIntent) {
+    scoreBias += inputLike ? 28 : -42;
+  }
+  return scoreBias;
 };
 
 const isValidationOnlyNode = (snapshot: ElementSnapshot): boolean => {
@@ -98,8 +163,7 @@ const getInspectFallbackLocator = async (runId: string, target: string): Promise
 const buildCandidates = async (runId: string, target: string, maxCandidates: number): Promise<ElementCandidate[]> => {
   const page = await browserManager.getPage(runId);
   const strategyDefs: Array<{ name: string; score: number; locator: Locator }> = [];
-  const semanticTarget = target.replace(FIELD_PREFIX_RE, "").trim();
-  const lookupTargets = semanticTarget && semanticTarget !== target ? [semanticTarget, target] : [target];
+  const lookupTargets = buildLookupTargets(target);
 
   const addStrategy = (name: string, score: number, locator: Locator): void => {
     strategyDefs.push({ name, score, locator });
@@ -111,14 +175,13 @@ const buildCandidates = async (runId: string, target: string, maxCandidates: num
 
   for (const [index, lookupTarget] of lookupTargets.entries()) {
     const offset = index * 8;
-    addStrategy(`label${index}`, 118 - offset, page.getByLabel(lookupTarget, { exact: false }));
-    addStrategy(`placeholder${index}`, 114 - offset, page.getByPlaceholder(lookupTarget, { exact: false }));
-    addStrategy(`comboboxRole${index}`, 108 - offset, page.getByRole("combobox", { name: lookupTarget }));
-    addStrategy(`optionRole${index}`, 102 - offset, page.getByRole("option", { name: lookupTarget }));
-    addStrategy(`buttonRole${index}`, 88 - offset, page.getByRole("button", { name: lookupTarget }));
+    addStrategy(`label${index}`, 126 - offset, page.getByLabel(lookupTarget, { exact: false }));
+    addStrategy(`placeholder${index}`, 122 - offset, page.getByPlaceholder(lookupTarget, { exact: false }));
+    addStrategy(`comboboxRole${index}`, 118 - offset, page.getByRole("combobox", { name: lookupTarget }));
+    addStrategy(`optionRole${index}`, 114 - offset, page.getByRole("option", { name: lookupTarget }));
+    addStrategy(`buttonRole${index}`, 124 - offset, page.getByRole("button", { name: lookupTarget }));
+    addStrategy(`text${index}`, 96 - offset, page.getByText(lookupTarget, { exact: false }));
   }
-
-  addStrategy("text", 100, page.getByText(target, { exact: false }));
 
   const candidates: ElementCandidate[] = [];
   const dedupe = new Set<string>();
@@ -147,10 +210,11 @@ const buildCandidates = async (runId: string, target: string, maxCandidates: num
       }
       dedupe.add(fingerprint);
       const elementId = elementStore.set(runId, item, snapshot);
+      const adjustedScore = strategy.score - i + getScoreBias(target, strategy.name, snapshot);
       candidates.push({
         element_id: elementId,
         strategy: strategy.name,
-        score: strategy.score - i,
+        score: adjustedScore,
         snapshot,
       });
       if (candidates.length >= maxCandidates) {

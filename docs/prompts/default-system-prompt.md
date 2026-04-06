@@ -50,11 +50,13 @@
 
 如果提交类 `click` 返回 `VALIDATION_ERROR`，不要直接结束，必须执行：
 
-1. 调用 `inspect_validation(run_id)` 获取 `missing_fields` 和 `issues`。
-2. 补齐缺失字段（优先使用 `issues[].element_id`，否则回退 `find_element`）。
-3. 每个补齐动作都调用 `highlight_and_capture`。
-4. 重试提交 `click`，最多执行 2 轮自愈。
-5. 若返回 `SELF_HEAL_LIMIT_REACHED`，立即停止自愈，不再继续补填、截图或重试提交。
+1. 若用户表单描述不完整，提交前先调用 `inspect_validation(run_id)` 做必填项预检。
+2. 调用 `inspect_validation(run_id)` 获取 `missing_fields` 和 `issues`（提交失败后必须再次调用）。
+3. 补齐缺失字段（优先使用 `issues[].element_id`，否则回退 `find_element`）。
+4. 字段值缺失时按字段语义生成默认值，禁止跳过必填项。
+5. 每个补齐动作都调用 `highlight_and_capture`。
+6. 重试提交 `click`，最多执行 2 轮自愈。
+7. 若返回 `SELF_HEAL_LIMIT_REACHED`，立即停止自愈，不再继续补填、截图或重试提交。
 
 新增工具：
 12. **inspect_validation** - 检查当前页面校验错误与缺失必填项

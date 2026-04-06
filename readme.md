@@ -250,6 +250,8 @@ node dist/index.js
 项目已支持提交失败后的结构化校验诊断与自愈流程：
 
 - `click` 在校验失败时返回结构化 `VALIDATION_ERROR`，包含 `missing_fields` 与问题摘要。
-- 新增 `inspect_validation(run_id, max_issues?)`，可返回缺失字段与可复用 `element_id` 线索。
-- 推荐编排：识别校验失败 -> 补齐必填字段 -> 截图留痕 -> 重试提交（最多 2 轮）。
+- `inspect_validation(run_id, max_issues?)` 可返回缺失字段与可复用 `element_id` 线索，并支持识别“必填但未填写”的字段。
+- 推荐编排：
+  - 提交前若用户描述不完整，先调用 `inspect_validation` 做必填项预检并补齐。
+  - 若提交后仍报错，执行“识别校验失败 -> 补齐必填字段 -> 截图留痕 -> 重试提交（最多 2 轮）”。
 - 当达到 2 轮上限时，`click` 将返回 `SELF_HEAL_LIMIT_REACHED`，编排层必须停止自愈循环。
