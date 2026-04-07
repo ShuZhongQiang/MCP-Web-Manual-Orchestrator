@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>咖啡后台管理系统-商品管理操作手册 (Run: 20260407_100000000)</title>
+    <style>
+        :root {
+            --bg: #eef3f8;
+            --panel: #ffffff;
+            --panel-soft: #f8fbff;
+            --line: #d9e3ef;
+            --text: #213547;
+            --muted: #5f6f82;
+            --brand: #0f6cbd;
+            --brand-soft: #e8f2ff;
+            --shadow: 0 18px 45px rgba(15, 45, 75, 0.08);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 24px;
+            font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top right, rgba(15, 108, 189, 0.10), transparent 24%),
+                linear-gradient(180deg, #f7fbff 0%, var(--bg) 100%);
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: var(--panel);
+            border: 1px solid rgba(15, 108, 189, 0.08);
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: var(--shadow);
+        }
+        .hero {
+            padding: 28px;
+            border-radius: 20px;
+            background: linear-gradient(135deg, rgba(15, 108, 189, 0.08), rgba(15, 108, 189, 0.02));
+            border: 1px solid rgba(15, 108, 189, 0.12);
+        }
+        h1 {
+            margin: 0;
+            font-size: 34px;
+            line-height: 1.25;
+            color: var(--brand);
+        }
+        .summary {
+            margin: 14px 0 0;
+            color: var(--text);
+            font-size: 16px;
+            line-height: 1.8;
+        }
+        .meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            margin-top: 18px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+        .meta-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: var(--brand-soft);
+            color: var(--brand);
+        }
+        .overview,
+        .module-section {
+            margin-top: 28px;
+        }
+        .section-title,
+        .module-title {
+            margin: 0;
+            font-size: 24px;
+            color: var(--text);
+        }
+        .module-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .module-card,
+        .module-section {
+            background: var(--panel-soft);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+        }
+        .module-card {
+            padding: 18px 20px;
+        }
+        .module-card-index,
+        .module-index {
+            margin: 0 0 8px;
+            color: var(--brand);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .module-card-title {
+            margin: 0;
+            font-size: 20px;
+        }
+        .module-card-desc,
+        .module-card-steps,
+        .module-desc {
+            color: var(--muted);
+            line-height: 1.7;
+        }
+        .module-card-desc {
+            margin: 10px 0 0;
+            font-size: 14px;
+        }
+        .module-card-steps {
+            margin: 12px 0 0;
+            font-size: 13px;
+        }
+        .module-section {
+            padding: 24px;
+        }
+        .module-header {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+        }
+        .module-desc {
+            margin: 10px 0 0;
+            font-size: 15px;
+        }
+        .step {
+            margin-top: 18px;
+            padding: 20px;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: var(--panel);
+        }
+        .step-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .step-title {
+            margin: 0;
+            font-size: 20px;
+        }
+        .step-module {
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: var(--brand-soft);
+            color: var(--brand);
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .step-action {
+            margin: 10px 0 0;
+            color: var(--muted);
+            font-size: 13px;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .step-desc {
+            margin: 12px 0 0;
+            font-size: 16px;
+            line-height: 1.8;
+        }
+        .step-audit {
+            margin: 12px 0 0;
+            color: var(--text);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .step-url {
+            margin: 8px 0 0;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.6;
+            word-break: break-all;
+        }
+        .screenshot {
+            margin-top: 18px;
+        }
+        .step-image {
+            display: block;
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            box-shadow: 0 10px 24px rgba(15, 45, 75, 0.08);
+        }
+        .footer {
+            margin-top: 32px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 13px;
+        }
+        @media (max-width: 768px) {
+            body { padding: 12px; }
+            .container { padding: 20px; border-radius: 16px; }
+            .hero { padding: 20px; }
+            h1 { font-size: 28px; }
+            .module-section { padding: 18px; }
+            .step { padding: 16px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <section class="hero">
+            <h1>咖啡后台管理系统-商品管理操作手册</h1>
+            <p class="summary">本手册详细介绍了咖啡后台管理系统中商品管理模块的操作流程，包括登录、进入商品管理页面、添加商品等步骤。</p>
+            <div class="meta">
+                <span>生成时间: 2026-04-07 15:41:29</span>
+                <span class="meta-chip">Run: 20260407_100000000</span>
+            </div>
+        </section>
+
+        <section class="overview">
+            <h2 class="section-title">功能模块</h2>
+            <div class="module-grid">
+
+            <article class="module-card">
+                <p class="module-card-index">模块 1</p>
+                <h3 class="module-card-title">商品管理</h3>
+                <p class="module-card-desc">商品管理模块用于管理咖啡商品的信息，包括添加、编辑、删除商品等操作。</p>
+                <p class="module-card-steps">包含步骤 1-8</p>
+            </article>
+            </div>
+        </section>
+
+        <section class="module-section">
+            <div class="module-header">
+                <p class="module-index">模块 1</p>
+                <h2 class="module-title">商品管理</h2>
+            </div>
+            <p class="module-desc">商品管理模块用于管理咖啡商品的信息，包括添加、编辑、删除商品等操作。</p>
+
+        <article class="step">
+            <div class="step-head">
+                <h3 class="step-title">步骤 1</h3>
+                
+            </div>
+            <p class="step-action">动作: click</p>
+            <p class="step-desc">访问登录页面并点击登录</p>
+            <p class="step-audit">状态: SUCCESS | 重试: 0 | 耗时: 1149ms</p>
+            <p class="step-url">前 URL: about:blank | 后 URL: http://localhost:5174/login</p>
+            <div class="screenshot"><img class="step-image" src="1_click.png" alt="步骤 1 截图"></div>
+        </article>
+        <article class="step">
+            <div class="step-head">
+                <h3 class="step-title">步骤 2</h3>
+                
+            </div>
+            <p class="step-action">动作: click</p>
+            <p class="step-desc">点击商品管理进入商品管理页面</p>
+            <p class="step-audit">状态: SUCCESS | 重试: 0 | 耗时: 826ms</p>
+            <p class="step-url">前 URL: http://localhost:5174/dashboard | 后 URL: http://localhost:5174/products</p>
+            <div class="screenshot"><img class="step-image" src="2_click.png" alt="步骤 2 截图"></div>
+        </article>
+        <article class="step">
+            <div class="step-head">
+                <h3 class="step-title">步骤 3</h3>
+                
+            </div>
+            <p class="step-action">动作: click</p>
+            <p class="step-desc">点击添加商品按钮打开添加商品弹出框</p>
+            <p class="step-audit">状态: SUCCESS | 重试: 0 | 耗时: 1135ms</p>
+            <p class="step-url">前 URL: http://localhost:5174/products | 后 URL: http://localhost:5174/products</p>
+            <div class="screenshot"><img class="step-image" src="3_click.png" alt="步骤 3 截图"></div>
+        </article>
+        <article class="step">
+            <div class="step-head">
+                <h3 class="step-title">步骤 4</h3>
+                
+            </div>
+            <p class="step-action">动作: input</p>
+            <p class="step-desc">在商品名称输入框中输入&#39;橙C美式&#39;</p>
+            <p class="step-audit">状态: SUCCESS | 重试: 0 | 耗时: 615ms</p>
+            <p class="step-url">前 URL: http://localhost:5174/products | 后 URL: http://localhost:5174/products</p>
+            <div class="screenshot"><img class="step-image" src="4_input.png" alt="步骤 4 截图"></div>
+        </article>
+        <article class="step">
+            <div class="step-head">
+                <h3 class="step-title">步骤 5</h3>
+                
+            </div>
+            <p class="step-action">动作: input</p>
+            <p class="step-desc">在价格输入框中输入&#39;9.9&#39;</p>
+            <p class="step-audit">状态: SUCCESS | 重试: 0 | 耗时: 627ms</p>
+            <p class="step-url">前 URL: http://localhost:5174/products | 后 URL: http://localhost:5174/products</p>
+            <div class="screenshot"><img class="step-image" src="5_input.png" alt="步骤 5 截图"></div>
+        </article>
+        <article class="step">
+            <div class="step-head">
+                <h3 class="step-title">步骤 6</h3>
+                
+            </div>
+            <p class="step-action">动作: select</p>
+            <p class="step-desc">在分类下拉框中选择&#39;咖啡&#39;</p>
+            <p class="step-audit">状态: SUCCESS | 重试: 0 | 耗时: 2362ms</p>
+            <p class="step-url">前 URL: http://localhost:5174/products | 后 URL: http://localhost:5174/products</p>
+            <div class="screenshot"><img class="step-image" src="6_select.png" alt="步骤 6 截图"></div>
+        </article>
+        <article class="step">
+            <div class="step-head">
+                <h3 class="step-title">步骤 7</h3>
+                
+            </div>
+            <p class="step-action">动作: input</p>
+            <p class="step-desc">在库存输入框中输入&#39;20&#39;</p>
+            <p class="step-audit">状态: SUCCESS | 重试: 0 | 耗时: 603ms</p>
+            <p class="step-url">前 URL: http://localhost:5174/products | 后 URL: http://localhost:5174/products</p>
+            <div class="screenshot"><img class="step-image" src="7_input.png" alt="步骤 7 截图"></div>
+        </article>
+        <article class="step">
+            <div class="step-head">
+                <h3 class="step-title">步骤 8</h3>
+                
+            </div>
+            <p class="step-action">动作: click</p>
+            <p class="step-desc">点击确定按钮保存商品信息</p>
+            <p class="step-audit">状态: SUCCESS | 重试: 0 | 耗时: 1191ms</p>
+            <p class="step-url">前 URL: http://localhost:5174/products | 后 URL: http://localhost:5174/products</p>
+            <div class="screenshot"><img class="step-image" src="8_click.png" alt="步骤 8 截图"></div>
+        </article>
+        </section>
+        <div class="footer">
+            <p>Generated by TRAE Web Manual Agent</p>
+        </div>
+    </div>
+</body>
+</html>
