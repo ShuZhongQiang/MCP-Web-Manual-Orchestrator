@@ -1,5 +1,7 @@
 # MCP Web Manual Orchestrator
 
+**简体中文** | [English](./README.en.md)
+
 面向 AI Agent 的浏览器自动化 MCP Server，用于把自然语言网页流程转换成带高亮截图的 HTML 操作手册。
 
 项目基于 FastMCP + Playwright解决以下问题：
