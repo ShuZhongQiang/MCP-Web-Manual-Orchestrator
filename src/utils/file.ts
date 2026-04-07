@@ -1,9 +1,9 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { BASE_MANUAL_DIR } from "../config.js";
+import { resolveRunDirPath } from "./run.js";
 
 export const getRunDir = (runId: string): string => {
-  const runDir = path.join(BASE_MANUAL_DIR, `run_${runId}`);
+  const runDir = resolveRunDirPath(runId);
   mkdirSync(runDir, { recursive: true });
   return runDir;
 };

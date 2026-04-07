@@ -1,5 +1,6 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { BROWSER_HEADLESS, VIEWPORT } from "../config.js";
+import { assertRunDirAvailableForNewSession } from "../utils/run.js";
 
 class BrowserManager {
   private browser?: Browser;
@@ -18,6 +19,7 @@ class BrowserManager {
       return existing.page;
     }
 
+    assertRunDirAvailableForNewSession(runId);
     const browser = await this.getBrowser();
     const context = await browser.newContext({ viewport: VIEWPORT });
     const page = await context.newPage();
