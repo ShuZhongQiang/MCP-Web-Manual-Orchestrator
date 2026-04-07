@@ -22,6 +22,15 @@ const SUBMIT_ACTION_RE =
   /(?:\u63d0\u4ea4|\u4fdd\u5b58|\u786e\u8ba4|\u53d1\u5e03|\u521b\u5efa|\u767b\u5f55|\u6ce8\u518c|submit|save|confirm|sign\s?in|log\s?in)/i;
 const COMBOBOX_CLASS_RE = /(ant-select|el-select|select-selector|dropdown|combobox)/i;
 const OPTION_CLASS_RE = /(ant-select-item-option|el-select-dropdown__item|option)/i;
+const COMBOBOX_TRIGGER_SELECTOR =
+  "[role='combobox'], .ant-select-selector, .el-select__wrapper, .el-input__wrapper, .el-input__inner, [aria-haspopup='listbox'], [aria-haspopup='menu']";
+const COMBOBOX_HOST_SELECTOR =
+  "[role='combobox'], .ant-select, .el-select, .el-select__wrapper, .el-input__wrapper, .el-input__inner";
+const COMBOBOX_OPEN_CLASS_RE = /\b(?:ant-select-open|is-focus|is-open|is-active|dropdown-open|select-open)\b/i;
+const COMBOBOX_POPUP_SELECTOR =
+  "[role='listbox'], .ant-select-dropdown, .ant-select-dropdown-hidden, .el-select-dropdown, .el-popper, .select-dropdown";
+const COMBOBOX_OPTION_SELECTOR =
+  "[role='option'], .ant-select-item-option, .el-select-dropdown__item, .ant-select-dropdown-menu-item, option";
 
 const currentLocalDate = (): string => {
   const now = new Date();
@@ -81,6 +90,11 @@ const isCombobox = (snapshot?: ElementSnapshot): boolean => {
   if (!snapshot) {
     return false;
   }
+  const tag = snapshot.tag.toLowerCase();
+  const role = snapshot.role.toLowerCase();
+  if (tag === "option" || role === "option" || OPTION_CLASS_RE.test(snapshot.className)) {
+    return false;
+  }
   if (snapshot.role.toLowerCase() === "combobox") {
     return true;
   }
@@ -90,9 +104,49 @@ const isCombobox = (snapshot?: ElementSnapshot): boolean => {
   return false;
 };
 
+const isOptionSnapshot = (snapshot?: ElementSnapshot): boolean => {
+  if (!snapshot) {
+    return false;
+  }
+  return (
+    snapshot.tag.toLowerCase() === "option" ||
+    snapshot.role.toLowerCase() === "option" ||
+    OPTION_CLASS_RE.test(snapshot.className)
+  );
+};
+
 const normalize = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, " ");
 
 const escapeAttributeValue = (value: string): string => value.replace(/["\\]/g, "\\$&");
+
+const resolveRecordedStep = ({
+  runId,
+  action,
+  desc,
+  explicitStep,
+}: {
+  runId: string;
+  action: string;
+  desc: string;
+  explicitStep?: number;
+}): number => {
+  if (typeof explicitStep === "number") {
+    return explicitStep;
+  }
+  const normalizedAction = normalize(action);
+  const normalizedDesc = normalize(desc);
+  const pending = stepRecorder.findLatest(
+    runId,
+    (item) =>
+      item.captureOnly === true &&
+      normalize(item.action ?? "") === normalizedAction &&
+      normalize(item.desc) === normalizedDesc,
+  );
+  if (pending) {
+    return pending.step;
+  }
+  return stepRecorder.getNextStep(runId);
+};
 
 const buildSelfHealKey = (desc: string, elementId: string, snapshot?: ElementSnapshot): string => {
   const source = [
@@ -153,6 +207,141 @@ const captureBeforeClick = async ({
   }
 };
 
+type ComboboxState = {
+  ariaExpanded: string;
+  className: string;
+  hostClassName: string;
+  visiblePopupCount: number;
+  visibleOptionCount: number;
+};
+
+const hasVisibleBox = async (locator: Locator): Promise<boolean> => {
+  const count = await locator.count().catch(() => 0);
+  if (count === 0) {
+    return false;
+  }
+  const upper = Math.min(count, 6);
+  for (let i = 0; i < upper; i += 1) {
+    const item = locator.nth(i);
+    const visible = await item.isVisible().catch(() => false);
+    if (visible) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const resolveComboboxTrigger = async (locator: Locator): Promise<Locator> => {
+  const candidates: Locator[] = [
+    locator.locator(COMBOBOX_TRIGGER_SELECTOR).first(),
+    locator.locator(`xpath=ancestor-or-self::*[self::select or @role='combobox' or contains(@class,'ant-select') or contains(@class,'el-select')][1]`).first(),
+    locator.locator(
+      `xpath=ancestor-or-self::*[self::select or @role='combobox' or contains(@class,'ant-select') or contains(@class,'el-select')][1]//*[self::input or @role='combobox' or contains(@class,'selector') or contains(@class,'wrapper')][1]`,
+    ).first(),
+    locator,
+  ];
+
+  for (const candidate of candidates) {
+    if (await hasVisibleBox(candidate)) {
+      return candidate;
+    }
+  }
+  return locator;
+};
+
+const readComboboxState = async (page: Page, locator: Locator): Promise<ComboboxState> => {
+  const [triggerState, overlayState] = await Promise.all([
+    locator
+      .evaluate((el, hostSelector) => {
+        const element = el as HTMLElement;
+        const host =
+          (element.closest(hostSelector as string) as HTMLElement | null) ??
+          (element.matches(hostSelector as string) ? element : null);
+        return {
+          ariaExpanded: String(
+            element.getAttribute("aria-expanded") ?? host?.getAttribute("aria-expanded") ?? "",
+          ),
+          className: String(element.className ?? ""),
+          hostClassName: String(host?.className ?? ""),
+        };
+      }, COMBOBOX_HOST_SELECTOR)
+      .catch(() => ({
+        ariaExpanded: "",
+        className: "",
+        hostClassName: "",
+      })),
+    page
+      .evaluate(
+        ({
+          popupSelector,
+          optionSelector,
+        }: {
+          popupSelector: string;
+          optionSelector: string;
+        }) => {
+          const isVisible = (node: Element | null): boolean => {
+            if (!(node instanceof HTMLElement)) {
+              return false;
+            }
+            const style = window.getComputedStyle(node);
+            if (
+              style.display === "none" ||
+              style.visibility === "hidden" ||
+              Number(style.opacity || "1") === 0
+            ) {
+              return false;
+            }
+            const rect = node.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          };
+
+          const popups = Array.from(document.querySelectorAll(popupSelector)).filter((item) => isVisible(item));
+          const options = Array.from(document.querySelectorAll(optionSelector)).filter((item) => isVisible(item));
+          return {
+            visiblePopupCount: popups.length,
+            visibleOptionCount: options.length,
+          };
+        },
+        {
+          popupSelector: COMBOBOX_POPUP_SELECTOR,
+          optionSelector: COMBOBOX_OPTION_SELECTOR,
+        },
+      )
+      .catch(() => ({
+        visiblePopupCount: 0,
+        visibleOptionCount: 0,
+      })),
+  ]);
+
+  return {
+    ariaExpanded: triggerState.ariaExpanded,
+    className: triggerState.className,
+    hostClassName: triggerState.hostClassName,
+    visiblePopupCount: overlayState.visiblePopupCount,
+    visibleOptionCount: overlayState.visibleOptionCount,
+  };
+};
+
+const hasComboboxOpenSignal = (state: ComboboxState): boolean => {
+  if (state.ariaExpanded.toLowerCase() === "true") {
+    return true;
+  }
+  return COMBOBOX_OPEN_CLASS_RE.test(`${state.className} ${state.hostClassName}`);
+};
+
+const didComboboxExpand = (before: ComboboxState, after: ComboboxState): boolean => {
+  if (hasComboboxOpenSignal(after)) {
+    return true;
+  }
+  if (after.visiblePopupCount > before.visiblePopupCount) {
+    return true;
+  }
+  if (before.visibleOptionCount === 0 && after.visibleOptionCount > 0) {
+    return true;
+  }
+  return false;
+};
+
 const clickWithWait = async ({
   page,
   runId,
@@ -166,12 +355,9 @@ const clickWithWait = async ({
 }): Promise<void> => {
   const locator = await elementStore.get(runId, elementId);
   const snapshot = elementStore.getSnapshot(runId, elementId);
-  const optionLike = Boolean(
-    snapshot &&
-      (snapshot.tag.toLowerCase() === "option" ||
-        snapshot.role.toLowerCase() === "option" ||
-        OPTION_CLASS_RE.test(snapshot.className)),
-  );
+  const optionLike = isOptionSnapshot(snapshot);
+  const effectiveCombo = combo && !optionLike;
+  const actionLocator = effectiveCombo ? await resolveComboboxTrigger(locator) : locator;
 
   const selectNativeOption = async (): Promise<boolean> => {
     const info = await locator
@@ -218,37 +404,37 @@ const clickWithWait = async ({
   };
 
   const clickWithFallback = async (): Promise<void> => {
-    await locator.scrollIntoViewIfNeeded().catch(() => undefined);
-    await locator.waitFor({ state: "visible", timeout: 1200 }).catch(() => undefined);
+    await actionLocator.scrollIntoViewIfNeeded().catch(() => undefined);
+    await actionLocator.waitFor({ state: "visible", timeout: 1200 }).catch(() => undefined);
 
     if (optionLike && (await selectNativeOption())) {
       return;
     }
 
     const attempts: Array<() => Promise<void>> = [];
-    if (combo) {
+    if (effectiveCombo) {
       attempts.push(async () => {
-        await locator.dispatchEvent("mousedown");
+        await actionLocator.dispatchEvent("mousedown");
       });
     }
     attempts.push(async () => {
-      await locator.click({ timeout: 1800 });
+      await actionLocator.click({ timeout: 1800 });
     });
     attempts.push(async () => {
-      await locator.click({ timeout: 1800, force: true });
+      await actionLocator.click({ timeout: 1800, force: true });
     });
     attempts.push(async () => {
-      await locator.dispatchEvent("mousedown");
-      await locator.dispatchEvent("mouseup");
-      await locator.dispatchEvent("click");
+      await actionLocator.dispatchEvent("mousedown");
+      await actionLocator.dispatchEvent("mouseup");
+      await actionLocator.dispatchEvent("click");
     });
     attempts.push(async () => {
-      await locator.evaluate((el) => {
+      await actionLocator.evaluate((el) => {
         (el as HTMLElement).click();
       });
     });
     attempts.push(async () => {
-      const box = await locator.boundingBox();
+      const box = await actionLocator.boundingBox();
       if (!box) {
         throw new Error("NO_BOUNDING_BOX");
       }
@@ -272,12 +458,45 @@ const clickWithWait = async ({
     .waitForURL((url) => url.toString() !== urlBeforeClick, { timeout: CLICK_URL_CHANGE_DETECT_MS })
     .then(() => true)
     .catch(() => false);
-  await clickWithFallback();
 
-  if (combo) {
-    await page.waitForTimeout(CLICK_COMBOBOX_EXPAND_WAIT_MS);
+  if (effectiveCombo) {
+    const comboBefore = await readComboboxState(page, actionLocator);
+    const comboAttempts: Array<() => Promise<void>> = [
+      async () => {
+        await clickWithFallback();
+      },
+      async () => {
+        await actionLocator.focus().catch(() => undefined);
+        await actionLocator.press("Enter", { timeout: 1200 });
+      },
+      async () => {
+        await actionLocator.focus().catch(() => undefined);
+        await actionLocator.press("ArrowDown", { timeout: 1200 });
+      },
+      async () => {
+        await actionLocator.focus().catch(() => undefined);
+        await actionLocator.press("Space", { timeout: 1200 });
+      },
+    ];
+
+    let comboExpanded = false;
+    for (const attempt of comboAttempts) {
+      await attempt();
+      await page.waitForTimeout(CLICK_COMBOBOX_EXPAND_WAIT_MS);
+      const comboAfter = await readComboboxState(page, actionLocator);
+      if (didComboboxExpand(comboBefore, comboAfter)) {
+        comboExpanded = true;
+        break;
+      }
+    }
+
+    if (!comboExpanded) {
+      throw new Error("COMBOBOX_NOT_EXPANDED");
+    }
     return;
   }
+
+  await clickWithFallback();
 
   const urlChanged = await waitForUrlChange;
   if (urlChanged) {
@@ -603,22 +822,30 @@ export const registerClickTool = (server: FastMCP): void => {
       element_id: z.string().min(1),
       run_id: z.string().min(1),
       text: z.string().min(1).optional(),
+      step: z.number().int().positive().optional(),
       retry_count: z.number().int().min(0).max(2).default(1),
     }),
     execute: async ({
       element_id,
       run_id,
       text,
+      step,
       retry_count,
     }: {
       element_id: string;
       run_id: string;
       text?: string;
+      step?: number;
       retry_count: number;
     }) => {
       const page = await browserManager.getPage(run_id);
-      const step = stepRecorder.getNextStep(run_id);
       const desc = text ?? "点击元素";
+      const stepNumber = resolveRecordedStep({
+        runId: run_id,
+        action: "click",
+        desc,
+        explicitStep: step,
+      });
       const pageUrlBefore = page.url();
       const startedAt = Date.now();
       const snapshot = elementStore.getSnapshot(run_id, element_id);
@@ -627,7 +854,7 @@ export const registerClickTool = (server: FastMCP): void => {
 
       await captureBeforeClick({
         runId: run_id,
-        step,
+        step: stepNumber,
         action: "click",
         text: desc,
         elementId: element_id,
@@ -689,7 +916,7 @@ export const registerClickTool = (server: FastMCP): void => {
           }
 
           stepRecorder.add(run_id, {
-            step,
+            step: stepNumber,
             desc,
             action: "click",
             status: "SUCCESS",
@@ -706,10 +933,11 @@ export const registerClickTool = (server: FastMCP): void => {
           lastClickErrorMessage = message;
           const isValidationError = message.startsWith("VALIDATION_ERROR");
           const isSelfHealLimitError = message.startsWith("SELF_HEAL_LIMIT_REACHED");
+          const isComboboxExpandError = message.startsWith("COMBOBOX_NOT_EXPANDED");
           if (isSelfHealLimitError) {
             errorCode = "SELF_HEAL_LIMIT_REACHED";
             stepRecorder.add(run_id, {
-              step,
+              step: stepNumber,
               desc,
               action: "click",
               status: "FAILED",
@@ -725,7 +953,7 @@ export const registerClickTool = (server: FastMCP): void => {
           if (isValidationError) {
             errorCode = "VALIDATION_ERROR";
             stepRecorder.add(run_id, {
-              step,
+              step: stepNumber,
               desc,
               action: "click",
               status: "FAILED",
@@ -738,6 +966,9 @@ export const registerClickTool = (server: FastMCP): void => {
             });
             throw (error instanceof Error ? error : new Error(message));
           }
+          if (isComboboxExpandError) {
+            errorCode = "COMBOBOX_NOT_EXPANDED";
+          }
           errorCode = errorCode ?? "CLICK_FAILED";
           if (retry < retry_count) {
             await page.waitForTimeout(200 * (retry + 1));
@@ -746,7 +977,7 @@ export const registerClickTool = (server: FastMCP): void => {
       }
 
       stepRecorder.add(run_id, {
-        step,
+        step: stepNumber,
         desc,
         action: "click",
         status: "FAILED",

@@ -13,6 +13,7 @@ export const registerInputTool = (server: FastMCP): void => {
       value: z.string(),
       run_id: z.string().min(1),
       text: z.string().min(1).optional(),
+      step: z.number().int().positive().optional(),
       retry_count: z.number().int().min(0).max(2).default(1),
     }),
     execute: async ({
@@ -20,16 +21,18 @@ export const registerInputTool = (server: FastMCP): void => {
       value,
       run_id,
       text,
+      step,
       retry_count,
     }: {
       element_id: string;
       value: string;
       run_id: string;
       text?: string;
+      step?: number;
       retry_count: number;
     }) => {
       const page = await browserManager.getPage(run_id);
-      const step = stepRecorder.getNextStep(run_id);
+      const stepNumber = step ?? stepRecorder.getNextStep(run_id);
       const desc = text ?? `输入内容: ${value}`;
       const pageUrlBefore = page.url();
       const startedAt = Date.now();
@@ -40,7 +43,7 @@ export const registerInputTool = (server: FastMCP): void => {
           await locator.scrollIntoViewIfNeeded();
           await locator.fill(value);
           stepRecorder.add(run_id, {
-            step,
+            step: stepNumber,
             desc,
             action: "input",
             status: "SUCCESS",
@@ -59,7 +62,7 @@ export const registerInputTool = (server: FastMCP): void => {
         }
       }
       stepRecorder.add(run_id, {
-        step,
+        step: stepNumber,
         desc,
         action: "input",
         status: "FAILED",

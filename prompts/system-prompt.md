@@ -121,6 +121,7 @@ YYYYMMDD_HHMMSSfff
 - 动作类型：`navigate` / `click` / `input`。
 - 默认先用 `find_element(target)` 的最小返回模式，不主动拉取页面结构。
 - 所有执行类工具必须传 `run_id`，确保 run 级状态隔离。
+- 所有执行类工具在已知逻辑步骤号时，必须传同一个 `step`，禁止让动作和截图各自自增编号。
 - 对 `click` 动作优先执行“点击前高亮截图”以避免跳转后元素消失。
 
 #### ①.1 低 Token 决策策略（必须）
@@ -159,7 +160,8 @@ YYYYMMDD_HHMMSSfff
 
 ### Step 4：生成 HTML 手册
 
-- 调度 `generate_manual`，传入结构化步骤数据。
+- 调度 `generate_manual` 时必须传入非空 `steps_json`，禁止传空数组或依赖运行期原始执行日志自动生成。
+- `steps_json` 中的 `step` 必须与前面执行 `navigate/click/input_text/highlight_and_capture` 时传入的 `step` 完全一致。
 
 ---
 
@@ -186,13 +188,13 @@ YYYYMMDD_HHMMSSfff
 ---
 
 ### 由 Skill 层提供的能力（Agent 仅调用）
-- `navigate(run_id, url)`
+- `navigate(run_id, url, step?)`
 - `find_element(run_id, target, return_candidates?, max_candidates?, retry_count?)`
 - `find_candidates(run_id, target, max_candidates?, retry_count?)`
-- `click(element_id, run_id, text?, retry_count?)`
-- `input_text(element_id, value, run_id, text?, retry_count?)`
+- `click(element_id, run_id, text?, step?, retry_count?)`
+- `input_text(element_id, value, run_id, text?, step?, retry_count?)`
 - `highlight_and_capture(element, step, action, text)`
-- `generate_manual(steps)`
+- `generate_manual(run_id, steps_json, clear_after_generate?)`
 - `inspect_summary(run_id, ...)`
 - `inspect_detail(run_id, element_ids, compact?)`
 

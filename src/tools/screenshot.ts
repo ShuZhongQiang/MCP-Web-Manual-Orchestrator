@@ -10,6 +10,36 @@ import { stepRecorder } from "../core/stepRecorder.js";
 import { getRunDir } from "../utils/file.js";
 import { clearHighlight, renderHighlight } from "../utils/highlight.js";
 
+const normalize = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, " ");
+
+const resolveScreenshotStep = ({
+  runId,
+  action,
+  text,
+  explicitStep,
+}: {
+  runId: string;
+  action: string;
+  text: string;
+  explicitStep?: number;
+}): number => {
+  if (typeof explicitStep === "number") {
+    return explicitStep;
+  }
+  const normalizedText = normalize(text);
+  const existing = stepRecorder.findLatest(
+    runId,
+    (item) =>
+      normalize(item.action ?? "") === normalize(action) &&
+      normalize(item.desc) === normalizedText &&
+      !item.image,
+  );
+  if (existing) {
+    return existing.step;
+  }
+  return stepRecorder.getNextStep(runId);
+};
+
 export const registerScreenshotTool = (server: FastMCP): void => {
   const definition = {
     description: "Capture highlighted element screenshot",
@@ -38,6 +68,15 @@ export const registerScreenshotTool = (server: FastMCP): void => {
       const safeAction = action.replaceAll(/[\\/:*?"<>|]/g, "_");
       const startedAt = Date.now();
       const pageUrlBefore = page.url();
+      const resolvedStep = resolveScreenshotStep({
+        runId: run_id,
+        action,
+        text,
+        explicitStep: step,
+      });
+      const existingStep = stepRecorder.findLatest(run_id, (item) => item.step === resolvedStep);
+      const isPreActionCapture =
+        !existingStep && action.toLowerCase().includes("click");
 
       const recordSuccess = (stepNumber: number, imagePath: string): string => {
         stepRecorder.add(run_id, {
@@ -51,6 +90,7 @@ export const registerScreenshotTool = (server: FastMCP): void => {
           pageUrlBefore,
           pageUrlAfter: page.url(),
           createdAt: new Date().toISOString(),
+          captureOnly: isPreActionCapture,
         });
         return imagePath;
       };
@@ -78,7 +118,7 @@ export const registerScreenshotTool = (server: FastMCP): void => {
         return cached.screenshotPath;
       };
 
-      const initialStep = step ?? stepRecorder.getNextStep(run_id);
+      const initialStep = resolvedStep;
       const screenshotPath = path.join(runDir, `${initialStep}_${safeAction}.png`);
 
       try {

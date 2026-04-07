@@ -10,16 +10,25 @@ export const registerNavigateTool = (server: FastMCP): void => {
     parameters: z.object({
       run_id: z.string().min(1),
       url: z.string().url(),
+      step: z.number().int().positive().optional(),
     }),
-    execute: async ({ run_id, url }: { run_id: string; url: string }) => {
+    execute: async ({
+      run_id,
+      url,
+      step,
+    }: {
+      run_id: string;
+      url: string;
+      step?: number;
+    }) => {
       const page = await browserManager.getPage(run_id);
-      const step = stepRecorder.getNextStep(run_id);
+      const stepNumber = step ?? stepRecorder.getNextStep(run_id);
       const pageUrlBefore = page.url();
       const startedAt = Date.now();
       try {
         await page.goto(url, { waitUntil: "domcontentloaded" });
         stepRecorder.add(run_id, {
-          step,
+          step: stepNumber,
           desc: `打开网页: ${url}`,
           action: "navigate",
           status: "SUCCESS",
@@ -32,7 +41,7 @@ export const registerNavigateTool = (server: FastMCP): void => {
         return `Successfully navigated to ${url}`;
       } catch {
         stepRecorder.add(run_id, {
-          step,
+          step: stepNumber,
           desc: `打开网页: ${url}`,
           action: "navigate",
           status: "FAILED",

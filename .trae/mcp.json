@@ -3,9 +3,9 @@
     "mcp-web-manual-orchestrator": {
       "command": "node",
       "args": [
-        "D:/Ai_agent/dist/index.js"
+        "D:\\AI-agent\\Node_Fast_Mcp_Web_Manual_Agent\\dist\\index.js"
       ],
-      "cwd": "D:/Ai_agent"
+      "cwd": "D:\\AI-agent\\Node_Fast_Mcp_Web_Manual_Agent"
     }
   }
 }

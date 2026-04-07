@@ -54,7 +54,7 @@ description: "Executes web steps and generates highlighted HTML manuals. Invoke 
 3. 循环执行：
    - `click` 且可能触发跳转/弹窗/DOM 刷新：`find_element` -> `highlight_and_capture` -> `click` -> （如需）`highlight_and_capture` 回退确认。
    - 其他动作：`find_element` -> `navigate/input_text/click` -> `highlight_and_capture` -> 记录步骤。
-4. 调用 `generate_manual` 生成 HTML。
+4. 调用 `generate_manual` 生成 HTML，且必须传入非空 `steps_json`。
 5. 调用 `close_session` 回收浏览器内存。
 6. 以自然语言告知用户手册生成完成及手册保存位置。
 
@@ -71,12 +71,12 @@ description: "Executes web steps and generates highlighted HTML manuals. Invoke 
 
 ## Skills 使用指南 (Skills Usage)
 仅调用以下预定义 Skills，不做越权操作：
-- `navigate(run_id, url)`：打开指定网页 URL 并记录审计字段。
+- `navigate(run_id, url, step?)`：打开指定网页 URL 并记录审计字段。同一逻辑步骤必须复用同一个 `step`。
 - `find_element(run_id, target, return_candidates?, max_candidates?, retry_count?)`：传入自然语言或选择器，返回 `element_id`。
-- `click(element_id, run_id, text?, retry_count?)`：点击元素并记录状态、错误码、重试次数、耗时、URL 前后值。
-- `input_text(element_id, value, run_id, text?, retry_count?)`：输入内容并记录状态、错误码、重试次数、耗时、URL 前后值。
+- `click(element_id, run_id, text?, step?, retry_count?)`：点击元素并记录状态、错误码、重试次数、耗时、URL 前后值。同一逻辑步骤必须复用同一个 `step`。
+- `input_text(element_id, value, run_id, text?, step?, retry_count?)`：输入内容并记录状态、错误码、重试次数、耗时、URL 前后值。同一逻辑步骤必须复用同一个 `step`。
 - `highlight_and_capture(element_id, step?, action, text, run_id)`：高亮元素并截图，返回截图绝对路径。
-- `generate_manual(run_id, steps_json="[]", clear_after_generate=false)`：生成最终 HTML 操作手册。
+- `generate_manual(run_id, steps_json, clear_after_generate=false)`：生成最终 HTML 操作手册。`steps_json` 必须是非空的用户逻辑步骤数组，禁止传 `[]`。
 - `inspect_summary(run_id, max_elements?, offset?, include_hidden?, query?, compact?, max_text_len?)`：返回页面标题、URL、标签统计和分页元素摘要。
 - `inspect_detail(run_id, element_ids, compact?)`：按 `element_id` 返回详细元素信息。
 - `list_elements(run_id, limit?)`：查看当前 run 最近缓存的 `element_id` 与摘要信息。
@@ -89,7 +89,7 @@ description: "Executes web steps and generates highlighted HTML manuals. Invoke 
 - 工具命名使用主工具名：`navigate/find_element/click/input_text/highlight_and_capture/generate_manual/inspect_summary/inspect_detail/list_elements/get_run_context/close_session`。
 - `run_id` 已在执行类工具中强制要求传入，元素缓存与步骤记录按 run 维度隔离。
 - 运行审计字段包含：`status/errorCode/retryCount/latencyMs/pageUrlBefore/pageUrlAfter`。
-- `steps_json` 可为空数组；为空时优先使用运行期自动记录步骤生成手册。
+- 禁止把 `steps_json` 设为空数组。若缺少 `steps_json` 或执行阶段未统一传递 `step`，`generate_manual` 应视为失败并重新编排，而不是直接输出错误手册。
 
 ## 表单校验自愈（Mandatory）
 

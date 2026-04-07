@@ -12,6 +12,7 @@ export type StepRecord = {
   pageUrlBefore?: string;
   pageUrlAfter?: string;
   createdAt?: string;
+  captureOnly?: boolean;
 };
 
 export type ElementRef = {
