@@ -55,6 +55,9 @@ description: "Executes web steps and generates highlighted HTML manuals. Invoke 
    - `click` 且可能触发跳转/弹窗/DOM 刷新：`find_element` -> `highlight_and_capture` -> `click` -> （如需）`highlight_and_capture` 回退确认。
    - 其他动作：`find_element` -> `navigate/input_text/click` -> `highlight_and_capture` -> 记录步骤。
 4. 调用 `generate_manual` 生成 HTML，且必须传入非空 `steps_json`。
+   - 推荐格式：`{ "title": "业务标题", "summary": "手册概述", "modules": [{ "title": "模块名", "description": "模块说明", "steps": [1,2] }], "steps": [...] }`
+   - 若用户未明确提供标题，可根据步骤语义自行归纳一个适合手册的标题。
+   - `steps[*].desc` 应写成适合文档阅读的说明，而不是只保留极短动作词。
 5. 调用 `close_session` 回收浏览器内存。
 6. 以自然语言告知用户手册生成完成及手册保存位置。
 
@@ -76,7 +79,7 @@ description: "Executes web steps and generates highlighted HTML manuals. Invoke 
 - `click(element_id, run_id, text?, step?, retry_count?)`：点击元素并记录状态、错误码、重试次数、耗时、URL 前后值。同一逻辑步骤必须复用同一个 `step`。
 - `input_text(element_id, value, run_id, text?, step?, retry_count?)`：输入内容并记录状态、错误码、重试次数、耗时、URL 前后值。同一逻辑步骤必须复用同一个 `step`。
 - `highlight_and_capture(element_id, step?, action, text, run_id)`：高亮元素并截图，返回截图绝对路径。
-- `generate_manual(run_id, steps_json, clear_after_generate=false)`：生成最终 HTML 操作手册。`steps_json` 必须是非空的用户逻辑步骤数组，禁止传 `[]`。
+- `generate_manual(run_id, steps_json, clear_after_generate=false)`：生成最终 HTML 操作手册。`steps_json` 必须非空；可传旧版步骤数组，也可传包含 `title/summary/modules/steps` 的对象，禁止传 `[]`。
 - `inspect_summary(run_id, max_elements?, offset?, include_hidden?, query?, compact?, max_text_len?)`：返回页面标题、URL、标签统计和分页元素摘要。
 - `inspect_detail(run_id, element_ids, compact?)`：按 `element_id` 返回详细元素信息。
 - `list_elements(run_id, limit?)`：查看当前 run 最近缓存的 `element_id` 与摘要信息。

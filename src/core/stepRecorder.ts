@@ -36,6 +36,8 @@ const mergeStepRecord = (current: StepRecord, incoming: StepRecord): StepRecord 
   desc: chooseDesc(current, incoming),
   image: incoming.image ?? current.image,
   action: incoming.action ?? current.action,
+  module: incoming.module ?? current.module,
+  moduleDescription: incoming.moduleDescription ?? current.moduleDescription,
   status: chooseStatus(current.status, incoming.status),
   errorCode: incoming.errorCode ?? current.errorCode,
   retryCount:

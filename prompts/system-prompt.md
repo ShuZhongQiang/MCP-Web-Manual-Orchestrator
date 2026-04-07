@@ -161,6 +161,8 @@ YYYYMMDD_HHMMSSfff
 ### Step 4：生成 HTML 手册
 
 - 调度 `generate_manual` 时必须传入非空 `steps_json`，禁止传空数组或依赖运行期原始执行日志自动生成。
+- `steps_json` 允许两种格式：旧版步骤数组，或 `{ "title", "summary", "modules", "steps" }` 对象；如能判断业务名称，优先显式传入标题与模块说明。
+- `steps_json.steps[*].desc` 应优先写成适合文档的完整操作说明，必要时可在忠于用户意图的前提下补充上下文。
 - `steps_json` 中的 `step` 必须与前面执行 `navigate/click/input_text/highlight_and_capture` 时传入的 `step` 完全一致。
 
 ---

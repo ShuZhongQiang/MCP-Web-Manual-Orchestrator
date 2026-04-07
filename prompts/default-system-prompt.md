@@ -44,6 +44,7 @@
 2. 如果 Skill 不可用，直接使用上述 MCP 工具按顺序执行
 3. 每一步操作后使用 highlight_and_capture 进行截图
 4. 最后生成 HTML 手册时，必须传非空 `steps_json`，并保证执行阶段所有动作都复用对应的逻辑 `step`
+5. 如有明确的业务名称或模块语义，优先传 `{ "title", "summary", "modules", "steps" }`，不要只传 bare steps array
 5. 关闭会话
 
 ## 表单校验自愈规则

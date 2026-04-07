@@ -5,6 +5,8 @@ export type StepRecord = {
   desc: string;
   image?: string;
   action?: string;
+  module?: string;
+  moduleDescription?: string;
   status?: "SUCCESS" | "FAILED" | "WARNING";
   errorCode?: string;
   retryCount?: number;
@@ -13,6 +15,23 @@ export type StepRecord = {
   pageUrlAfter?: string;
   createdAt?: string;
   captureOnly?: boolean;
+};
+
+export type ManualModule = {
+  title: string;
+  description?: string;
+  steps?: number[];
+};
+
+export type ManualDocument = {
+  title: string;
+  summary: string;
+  modules: Array<{
+    title: string;
+    description: string;
+    steps: number[];
+  }>;
+  steps: StepRecord[];
 };
 
 export type ElementRef = {
