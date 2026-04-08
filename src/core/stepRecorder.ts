@@ -1,5 +1,30 @@
 import type { StepRecord } from "../types.js";
 
+const mergeStringArray = (current?: string[], incoming?: string[]): string[] | undefined => {
+  const merged = [...(current ?? []), ...(incoming ?? [])]
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return merged.length > 0 ? [...new Set(merged)] : undefined;
+};
+
+const mergeEvidence = (
+  current?: StepRecord["evidence"],
+  incoming?: StepRecord["evidence"],
+): StepRecord["evidence"] | undefined => {
+  const merged = [...(current ?? []), ...(incoming ?? [])].filter(
+    (item): item is NonNullable<StepRecord["evidence"]>[number] => Boolean(item?.label),
+  );
+  if (merged.length === 0) {
+    return undefined;
+  }
+  const deduped = new Map<string, NonNullable<StepRecord["evidence"]>[number]>();
+  for (const item of merged) {
+    const key = `${item.label}|${item.image ?? ""}`;
+    deduped.set(key, item);
+  }
+  return [...deduped.values()];
+};
+
 const chooseStatus = (
   current?: StepRecord["status"],
   incoming?: StepRecord["status"],
@@ -35,6 +60,14 @@ const mergeStepRecord = (current: StepRecord, incoming: StepRecord): StepRecord 
   step: current.step,
   desc: chooseDesc(current, incoming),
   image: incoming.image ?? current.image,
+  notes: mergeStringArray(current.notes, incoming.notes),
+  evidence: mergeEvidence(current.evidence, incoming.evidence),
+  missingFields: mergeStringArray(current.missingFields, incoming.missingFields),
+  filledFields: mergeStringArray(current.filledFields, incoming.filledFields),
+  selfHealRounds:
+    typeof incoming.selfHealRounds === "number"
+      ? Math.max(current.selfHealRounds ?? 0, incoming.selfHealRounds)
+      : current.selfHealRounds,
   action: incoming.action ?? current.action,
   module: incoming.module ?? current.module,
   moduleDescription: incoming.moduleDescription ?? current.moduleDescription,

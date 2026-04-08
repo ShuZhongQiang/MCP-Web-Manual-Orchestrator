@@ -111,3 +111,26 @@ description: "Executes web steps and generates highlighted HTML manuals. Invoke 
 
 新增工具：
 - `inspect_validation(run_id, max_issues?)`
+- `inspect_active_layer(run_id, max_layers?, compact?)`
+- `inspect_form(run_id, max_fields?, include_optional?, compact?)`
+
+## Form-Aware Orchestration Rules
+
+When the user intent contains `新增 / 创建 / 添加 / 编辑 / 完善表单 / 保存 / 提交 / 确定`, the agent must treat the page as a form task first and must not fill fields blindly in the order of the user's prose.
+
+Required workflow:
+
+1. Detect whether the current page or popup is a form scene.
+2. If a dialog / drawer / dropdown / popover may already be open, call `inspect_active_layer(run_id)` first to confirm the current valid foreground scope.
+3. Before the first field fill or submit click, call `inspect_form(run_id, ...)` to collect the field plan and `inspect_validation(run_id, max_issues?)` to pre-check required fields.
+4. Build a field execution plan: field name, control type, required flag, value source, execution action.
+5. If `inspect_validation` returns `issues[].element_id`, or `inspect_form` returns field `element_id`, use those ids first.
+6. Only when the field meaning or control type is still unclear, call `inspect_summary(run_id, query="表单 输入框 下拉框 必填 保存", compact=true, max_elements<=20)` and then `inspect_detail` if needed.
+7. Execute by control type instead of treating everything as plain text:
+   - text / textarea / numeric input: `input_text`
+   - select / combobox: `click` to open, then locate and `click` the option
+   - checkbox / radio / switch: `click`
+   - date / time: prefer direct input; otherwise open the picker and `click` the target value
+8. Once a dropdown is opened, the option search scope must be limited to the active dropdown layer returned by `inspect_active_layer`; if the option does not exist there, treat it as “option not found” instead of selecting same-text content behind the overlay.
+9. If the user only says “完善表单” or “新增一个商品”, the agent must proactively fill all required fields before submit.
+10. Every self-heal or required-field fill action is a key manual step and must be captured with `highlight_and_capture`.

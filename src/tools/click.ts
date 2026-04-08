@@ -8,7 +8,7 @@ import { elementStore } from "../core/elementStore.js";
 import { preActionCaptureStore } from "../core/preActionCaptureStore.js";
 import { selfHealStore } from "../core/selfHealStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
-import type { ElementSnapshot } from "../types.js";
+import type { ElementSnapshot, StepRecord } from "../types.js";
 import { getRunDir } from "../utils/file.js";
 import { clearHighlight, renderHighlight } from "../utils/highlight.js";
 import { buildValidationErrorMessage, inspectValidation, resolveIssueLocator, type ValidationReport } from "../utils/validation.js";
@@ -162,6 +162,26 @@ const buildSelfHealKey = (desc: string, elementId: string, snapshot?: ElementSna
     .filter((item) => item.length > 0)
     .join("|");
   return source || `submit:${elementId}`;
+};
+
+type SelfHealAudit = {
+  notes: string[];
+  evidence: NonNullable<StepRecord["evidence"]>;
+  missingFields: string[];
+  filledFields: string[];
+  rounds: number;
+};
+
+const createSelfHealAudit = (): SelfHealAudit => ({
+  notes: [],
+  evidence: [],
+  missingFields: [],
+  filledFields: [],
+  rounds: 0,
+});
+
+const mergeUnique = (current: string[], incoming: string[]): string[] => {
+  return [...new Set([...current, ...incoming].map((item) => item.trim()).filter((item) => item.length > 0))];
 };
 
 const captureBeforeClick = async ({
@@ -741,14 +761,57 @@ const resolveFieldLocator = async ({
   ).catch(() => undefined);
 };
 
+const captureSelfHealEvidence = async ({
+  page,
+  locator,
+  runId,
+  step,
+  fieldName,
+  index,
+}: {
+  page: Page;
+  locator: Locator;
+  runId: string;
+  step: number;
+  fieldName: string;
+  index: number;
+}): Promise<NonNullable<StepRecord["evidence"]>[number] | undefined> => {
+  const screenshotPath = path.join(getRunDir(runId), `${step}_self_heal_${index}.png`);
+  try {
+    await locator.scrollIntoViewIfNeeded();
+    const box = await locator.boundingBox();
+    if (!box) {
+      return undefined;
+    }
+    const label = `自动补齐字段: ${fieldName}`;
+    await renderHighlight(page, box, label);
+    await page.waitForTimeout(SCREENSHOT_RENDER_WAIT_MS);
+    await page.screenshot({ path: screenshotPath });
+    return {
+      label,
+      image: screenshotPath,
+    };
+  } catch {
+    return {
+      label: `自动补齐字段: ${fieldName}`,
+    };
+  } finally {
+    await clearHighlight(page).catch(() => undefined);
+  }
+};
+
 const fillRequiredFields = async ({
   runId,
   page,
   validation,
+  step,
+  audit,
 }: {
   runId: string;
   page: Page;
   validation: ValidationReport;
+  step: number;
+  audit: SelfHealAudit;
 }): Promise<{ success: boolean; filledCount: number; attemptedCount: number; filledFields: string[] }> => {
   const queue: Array<{ fieldName: string; issue?: ValidationReport["issues"][number] }> = [];
   const dedupe = new Set<string>();
@@ -769,9 +832,17 @@ const fillRequiredFields = async ({
     pushQueue(field);
   }
 
+  audit.missingFields = mergeUnique(audit.missingFields, validation.missingFields);
+  if (validation.missingFields.length > 0) {
+    audit.notes = mergeUnique(audit.notes, [
+      `识别到缺失字段: ${validation.missingFields.join("、")}`,
+    ]);
+  }
+
   let filledCount = 0;
   let attemptedCount = 0;
   const filledFields: string[] = [];
+  let evidenceIndex = audit.evidence.length;
 
   for (const item of queue) {
     const locator = await resolveFieldLocator({
@@ -796,6 +867,20 @@ const fillRequiredFields = async ({
       await page.waitForTimeout(200);
       filledCount += 1;
       filledFields.push(item.fieldName);
+      audit.filledFields = mergeUnique(audit.filledFields, [item.fieldName]);
+      audit.notes = mergeUnique(audit.notes, [`自动补齐字段: ${item.fieldName}`]);
+      evidenceIndex += 1;
+      const evidence = await captureSelfHealEvidence({
+        page,
+        locator,
+        runId,
+        step,
+        fieldName: item.fieldName,
+        index: evidenceIndex,
+      });
+      if (evidence) {
+        audit.evidence = [...audit.evidence, evidence];
+      }
     } catch {
       // Continue to next field
     }
@@ -813,6 +898,17 @@ const buildSelfHealLimitError = (validation: ValidationReport): Error => {
       message: `Validation self-heal reached max rounds: ${MAX_SELF_HEAL_ROUNDS}`,
     })}`,
   );
+};
+
+const buildSelfHealSuccessMessage = (audit: SelfHealAudit): string => {
+  if ((audit.filledFields.length ?? 0) === 0) {
+    return "Clicked successfully";
+  }
+  const parts = [`filled required fields [${audit.filledFields.join(", ")}]`];
+  if (audit.rounds > 0) {
+    parts.push(`self_heal_rounds=${audit.rounds}`);
+  }
+  return `Clicked successfully after validation self-heal: ${parts.join("; ")}`;
 };
 
 export const registerClickTool = (server: FastMCP): void => {
@@ -851,6 +947,7 @@ export const registerClickTool = (server: FastMCP): void => {
       const snapshot = elementStore.getSnapshot(run_id, element_id);
       const shouldInspectValidation = isLikelySubmitClick(desc, snapshot);
       const selfHealKey = shouldInspectValidation ? buildSelfHealKey(desc, element_id, snapshot) : undefined;
+      const selfHealAudit = createSelfHealAudit();
 
       await captureBeforeClick({
         runId: run_id,
@@ -868,8 +965,11 @@ export const registerClickTool = (server: FastMCP): void => {
             runId: run_id,
             page,
             validation,
+            step: stepNumber,
+            audit: selfHealAudit,
           });
           if (fillResult.filledCount > 0) {
+            selfHealAudit.rounds += 1;
             await page.waitForTimeout(300);
           }
         }
@@ -899,12 +999,15 @@ export const registerClickTool = (server: FastMCP): void => {
                 runId: run_id,
                 page,
                 validation,
+                step: stepNumber,
+                audit: selfHealAudit,
               });
               if (fillResult.filledCount === 0) {
                 throw new Error(buildValidationErrorMessage(validation));
               }
 
               selfHealStore.increment(run_id, selfHealKey);
+              selfHealAudit.rounds += 1;
               await page.waitForTimeout(SELF_HEAL_RETRY_WAIT_MS);
               await clickWithWait({ page, runId: run_id, elementId: element_id, combo: isCombo });
               validation = await inspectValidation({ runId: run_id, page });
@@ -918,6 +1021,11 @@ export const registerClickTool = (server: FastMCP): void => {
           stepRecorder.add(run_id, {
             step: stepNumber,
             desc,
+            notes: selfHealAudit.notes,
+            evidence: selfHealAudit.evidence,
+            missingFields: selfHealAudit.missingFields,
+            filledFields: selfHealAudit.filledFields,
+            selfHealRounds: selfHealAudit.rounds,
             action: "click",
             status: "SUCCESS",
             retryCount: retry,
@@ -927,7 +1035,7 @@ export const registerClickTool = (server: FastMCP): void => {
             createdAt: new Date().toISOString(),
           });
 
-          return "Clicked successfully";
+          return buildSelfHealSuccessMessage(selfHealAudit);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           lastClickErrorMessage = message;
@@ -939,6 +1047,11 @@ export const registerClickTool = (server: FastMCP): void => {
             stepRecorder.add(run_id, {
               step: stepNumber,
               desc,
+              notes: selfHealAudit.notes,
+              evidence: selfHealAudit.evidence,
+              missingFields: selfHealAudit.missingFields,
+              filledFields: selfHealAudit.filledFields,
+              selfHealRounds: selfHealAudit.rounds,
               action: "click",
               status: "FAILED",
               errorCode,
@@ -955,6 +1068,11 @@ export const registerClickTool = (server: FastMCP): void => {
             stepRecorder.add(run_id, {
               step: stepNumber,
               desc,
+              notes: selfHealAudit.notes,
+              evidence: selfHealAudit.evidence,
+              missingFields: selfHealAudit.missingFields,
+              filledFields: selfHealAudit.filledFields,
+              selfHealRounds: selfHealAudit.rounds,
               action: "click",
               status: "FAILED",
               errorCode,
@@ -979,6 +1097,11 @@ export const registerClickTool = (server: FastMCP): void => {
       stepRecorder.add(run_id, {
         step: stepNumber,
         desc,
+        notes: selfHealAudit.notes,
+        evidence: selfHealAudit.evidence,
+        missingFields: selfHealAudit.missingFields,
+        filledFields: selfHealAudit.filledFields,
+        selfHealRounds: selfHealAudit.rounds,
         action: "click",
         status: "FAILED",
         errorCode: errorCode ?? (lastValidation ? "VALIDATION_ERROR" : "CLICK_FAILED"),

@@ -25,6 +25,31 @@ type ParsedManualPayload = {
 
 const normalize = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, " ");
 
+const mergeStringArray = (current?: string[], incoming?: string[]): string[] | undefined => {
+  const merged = [...(current ?? []), ...(incoming ?? [])]
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return merged.length > 0 ? [...new Set(merged)] : undefined;
+};
+
+const mergeEvidence = (
+  current?: StepRecord["evidence"],
+  incoming?: StepRecord["evidence"],
+): StepRecord["evidence"] | undefined => {
+  const merged = [...(current ?? []), ...(incoming ?? [])].filter(
+    (item): item is NonNullable<StepRecord["evidence"]>[number] => Boolean(item?.label),
+  );
+  if (merged.length === 0) {
+    return undefined;
+  }
+  const deduped = new Map<string, NonNullable<StepRecord["evidence"]>[number]>();
+  for (const item of merged) {
+    const key = `${item.label}|${item.image ?? ""}`;
+    deduped.set(key, item);
+  }
+  return [...deduped.values()];
+};
+
 const stepSchema = z
   .object({
     step: z.coerce.number().int().positive(),
@@ -32,6 +57,21 @@ const stepSchema = z
     text: z.string().optional(),
     image: z.string().optional(),
     screenshot: z.string().optional(),
+    notes: z.array(z.string()).optional(),
+    evidence: z
+      .array(
+        z.object({
+          label: z.string().min(1),
+          image: z.string().optional(),
+        }),
+      )
+      .optional(),
+    missingFields: z.array(z.string()).optional(),
+    missing_fields: z.array(z.string()).optional(),
+    filledFields: z.array(z.string()).optional(),
+    filled_fields: z.array(z.string()).optional(),
+    selfHealRounds: z.number().int().min(0).optional(),
+    self_heal_rounds: z.number().int().min(0).optional(),
     action: z.string().optional(),
     module: z.string().optional(),
     moduleTitle: z.string().optional(),
@@ -55,6 +95,11 @@ const stepSchema = z
       step: item.step,
       desc,
       image: item.image ?? item.screenshot,
+      notes: item.notes,
+      evidence: item.evidence,
+      missingFields: item.missingFields ?? item.missing_fields,
+      filledFields: item.filledFields ?? item.filled_fields,
+      selfHealRounds: item.selfHealRounds ?? item.self_heal_rounds,
       action: item.action,
       module: item.module ?? item.moduleTitle ?? item.module_title,
       moduleDescription: item.moduleDescription ?? item.module_description,
@@ -158,6 +203,14 @@ const mergeRecordedSteps = (current: StepRecord, incoming: StepRecord): StepReco
         ? current.desc
         : incoming.desc,
   image: incoming.image ?? current.image,
+  notes: mergeStringArray(current.notes, incoming.notes),
+  evidence: mergeEvidence(current.evidence, incoming.evidence),
+  missingFields: mergeStringArray(current.missingFields, incoming.missingFields),
+  filledFields: mergeStringArray(current.filledFields, incoming.filledFields),
+  selfHealRounds:
+    typeof incoming.selfHealRounds === "number"
+      ? Math.max(current.selfHealRounds ?? 0, incoming.selfHealRounds)
+      : current.selfHealRounds,
   action: incoming.action ?? current.action,
   module: incoming.module ?? current.module,
   moduleDescription: incoming.moduleDescription ?? current.moduleDescription,
@@ -200,6 +253,14 @@ const mergeInputWithRecorded = (inputStep: StepRecord, recorded?: StepRecord): S
     ...inputStep,
     desc: inputStep.desc || recorded.desc,
     image: inputStep.image ?? recorded.image,
+    notes: mergeStringArray(recorded.notes, inputStep.notes),
+    evidence: mergeEvidence(recorded.evidence, inputStep.evidence),
+    missingFields: mergeStringArray(recorded.missingFields, inputStep.missingFields),
+    filledFields: mergeStringArray(recorded.filledFields, inputStep.filledFields),
+    selfHealRounds:
+      typeof inputStep.selfHealRounds === "number"
+        ? Math.max(recorded.selfHealRounds ?? 0, inputStep.selfHealRounds)
+        : recorded.selfHealRounds,
     action: inputStep.action ?? recorded.action,
     module: inputStep.module ?? recorded.module,
     moduleDescription: inputStep.moduleDescription ?? recorded.moduleDescription,
@@ -554,6 +615,10 @@ export const registerGenerateManualTool = (server: FastMCP): void => {
       const normalized = sorted.map((item) => ({
         ...item,
         image: item.image ? toRelativeImagePath(item.image, runDir) : undefined,
+        evidence: item.evidence?.map((entry) => ({
+          ...entry,
+          image: entry.image ? toRelativeImagePath(entry.image, runDir) : undefined,
+        })),
         captureOnly: undefined,
       }));
 

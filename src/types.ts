@@ -4,6 +4,14 @@ export type StepRecord = {
   step: number;
   desc: string;
   image?: string;
+  notes?: string[];
+  evidence?: Array<{
+    label: string;
+    image?: string;
+  }>;
+  missingFields?: string[];
+  filledFields?: string[];
+  selfHealRounds?: number;
   action?: string;
   module?: string;
   moduleDescription?: string;

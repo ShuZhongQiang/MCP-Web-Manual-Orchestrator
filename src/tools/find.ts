@@ -15,10 +15,44 @@ const CONTROL_SUFFIX_RE =
 const CLICK_INTENT_RE = /(?:\u70b9\u51fb|\u70b9\u6309|\u5355\u51fb|click|tap|button|\u6309\u94ae|\u94fe\u63a5)/i;
 const INPUT_INTENT_RE =
   /(?:\u8f93\u5165|\u586b\u5199|\u8f93\u5165\u6846|\u6587\u672c\u6846|\u4e0b\u62c9|\u9009\u62e9|input|textbox|combobox|select|field)/i;
+const OPTION_INTENT_RE =
+  /(?:\u9009\u9879|\u4e0b\u62c9|\u9009\u62e9|option|dropdown|listbox|combobox)/i;
 const INTERACTIVE_SELECTOR =
-  "a, button, input, select, textarea, option, [role='button'], [role='combobox'], [role='option'], [onclick], .ant-select-selector, .el-select";
+  "a, button, input, select, textarea, option, [role='button'], [role='combobox'], [role='option'], [onclick], .ant-select-selector, .ant-select-item-option, .ant-select-item-option-content, .el-select, .el-select-dropdown__item";
+const ACTIVE_LAYER_SELECTOR = [
+  "[role='dialog']",
+  ".ant-modal",
+  ".ant-modal-root",
+  ".el-dialog",
+  ".el-drawer",
+  ".ant-drawer",
+  ".ant-select-dropdown",
+  ".el-select-dropdown",
+  ".el-popper",
+  "[role='listbox']",
+  ".ant-picker-dropdown",
+  ".ant-dropdown",
+  ".ant-popover",
+].join(", ");
+const DROPDOWN_LAYER_SELECTOR = [
+  ".ant-select-dropdown",
+  ".el-select-dropdown",
+  ".el-popper",
+  "[role='listbox']",
+  ".ant-picker-dropdown",
+  ".ant-dropdown",
+].join(", ");
 
 const EXCLUDED_CELL_CLASSES = /cell|el-table__cell|td|th/i;
+
+type CandidateContext = {
+  isTopMostAtPoint: boolean;
+  insideActiveLayer: boolean;
+  insideTopLayer: boolean;
+  insideDropdownLayer: boolean;
+  insideDialogLayer: boolean;
+  activeLayerRole: "none" | "dialog" | "dropdown";
+};
 
 const getElementSnapshot = async (locator: Locator): Promise<ElementSnapshot> => {
   return locator.evaluate((el) => {
@@ -110,12 +144,106 @@ const isInputLikeSnapshot = (snapshot: ElementSnapshot): boolean => {
   return /(ant-select|el-select|input|textarea|combobox|selector)/i.test(snapshot.className);
 };
 
-const getScoreBias = (target: string, strategyName: string, snapshot: ElementSnapshot): number => {
+const getCandidateContext = async (locator: Locator): Promise<CandidateContext> => {
+  return locator
+    .evaluate(
+      (
+        el,
+        {
+          activeLayerSelector,
+          dropdownLayerSelector,
+        }: {
+          activeLayerSelector: string;
+          dropdownLayerSelector: string;
+        },
+      ) => {
+        const element = el as HTMLElement;
+        const isVisible = (node: Element | null): node is HTMLElement => {
+          if (!(node instanceof HTMLElement)) {
+            return false;
+          }
+          const style = window.getComputedStyle(node);
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            Number(style.opacity || "1") === 0
+          ) {
+            return false;
+          }
+          const rect = node.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+
+        const rankLayer = (node: HTMLElement): number => {
+          const zIndex = Number.parseInt(window.getComputedStyle(node).zIndex || "0", 10);
+          const rect = node.getBoundingClientRect();
+          const area = rect.width * rect.height;
+          return (Number.isFinite(zIndex) ? zIndex : 0) * 1_000_000 + Math.round(area);
+        };
+
+        const activeLayers = Array.from(document.querySelectorAll(activeLayerSelector))
+          .filter(isVisible)
+          .map((node, index) => ({
+            node,
+            index,
+            rank: rankLayer(node),
+          }))
+          .sort((left, right) => right.rank - left.rank || right.index - left.index);
+
+        const topLayer = activeLayers[0]?.node ?? null;
+        const rect = element.getBoundingClientRect();
+        const sampleX = Math.min(Math.max(rect.left + Math.min(rect.width / 2, Math.max(rect.width - 2, 1)), 1), window.innerWidth - 1);
+        const sampleY = Math.min(Math.max(rect.top + Math.min(rect.height / 2, Math.max(rect.height - 2, 1)), 1), window.innerHeight - 1);
+        const topNode = rect.width > 0 && rect.height > 0 ? document.elementFromPoint(sampleX, sampleY) : null;
+        const topElement = topNode instanceof HTMLElement ? topNode : null;
+        const insideTopHit =
+          !!topElement && (topElement === element || topElement.contains(element) || element.contains(topElement));
+
+        const activeLayer = element.closest(activeLayerSelector) as HTMLElement | null;
+        const dropdownLayer = element.closest(dropdownLayerSelector) as HTMLElement | null;
+        const dialogLayer = element.closest("[role='dialog'], .ant-modal, .ant-modal-root, .el-dialog, .el-drawer, .ant-drawer") as HTMLElement | null;
+        const topLayerRole: CandidateContext["activeLayerRole"] = !topLayer
+          ? "none"
+          : topLayer.matches(dropdownLayerSelector)
+            ? "dropdown"
+            : "dialog";
+
+        return {
+          isTopMostAtPoint: insideTopHit,
+          insideActiveLayer: Boolean(activeLayer),
+          insideTopLayer: Boolean(topLayer && (topLayer === element || topLayer.contains(element))),
+          insideDropdownLayer: Boolean(dropdownLayer),
+          insideDialogLayer: Boolean(dialogLayer),
+          activeLayerRole: topLayerRole,
+        };
+      },
+      {
+        activeLayerSelector: ACTIVE_LAYER_SELECTOR,
+        dropdownLayerSelector: DROPDOWN_LAYER_SELECTOR,
+      },
+    )
+    .catch(() => ({
+      isTopMostAtPoint: true,
+      insideActiveLayer: false,
+      insideTopLayer: false,
+      insideDropdownLayer: false,
+      insideDialogLayer: false,
+      activeLayerRole: "none" as const,
+    }));
+};
+
+const getScoreBias = (
+  target: string,
+  strategyName: string,
+  snapshot: ElementSnapshot,
+  context: CandidateContext,
+): number => {
   const interactive = isInteractiveSnapshot(snapshot);
   const inputLike = isInputLikeSnapshot(snapshot);
   const normalizedTarget = normalize(target);
   const hasClickIntent = CLICK_INTENT_RE.test(normalizedTarget);
   const hasInputIntent = INPUT_INTENT_RE.test(normalizedTarget);
+  const hasOptionIntent = OPTION_INTENT_RE.test(normalizedTarget);
 
   let scoreBias = interactive ? 24 : -8;
   if (strategyName.startsWith("text") && !interactive) {
@@ -129,6 +257,22 @@ const getScoreBias = (target: string, strategyName: string, snapshot: ElementSna
   }
   if (hasInputIntent) {
     scoreBias += inputLike ? 28 : -42;
+  }
+  if (!context.isTopMostAtPoint) {
+    scoreBias -= 120;
+  }
+  if (context.activeLayerRole !== "none") {
+    scoreBias += context.insideTopLayer ? 48 : -140;
+    if (context.activeLayerRole === "dropdown") {
+      scoreBias += context.insideDropdownLayer ? 42 : -110;
+    }
+    if (context.activeLayerRole === "dialog") {
+      scoreBias += context.insideDialogLayer ? 28 : -36;
+    }
+  }
+  if (hasOptionIntent) {
+    scoreBias += context.insideDropdownLayer ? 68 : -90;
+    scoreBias += snapshot.role.toLowerCase() === "option" || snapshot.tag.toLowerCase() === "option" ? 40 : 0;
   }
   return scoreBias;
 };
@@ -156,6 +300,13 @@ const getInspectFallbackLocator = async (runId: string, target: string): Promise
     if (!snapshot) {
       continue;
     }
+    const context = await getCandidateContext(item);
+    if (context.activeLayerRole !== "none" && !context.insideTopLayer) {
+      continue;
+    }
+    if (!context.isTopMostAtPoint && !context.insideDropdownLayer) {
+      continue;
+    }
     const searchable =
       `${snapshot.text} ${snapshot.ariaLabel} ${snapshot.placeholder} ${snapshot.idAttr} ${snapshot.nameAttr}`.toLowerCase();
     if (matchesTarget(searchable, target)) {
@@ -180,11 +331,26 @@ const buildCandidates = async (runId: string, target: string, maxCandidates: num
 
   for (const [index, lookupTarget] of lookupTargets.entries()) {
     const offset = index * 8;
+    addStrategy(
+      `activeOptionRole${index}`,
+      138 - offset,
+      page.locator(DROPDOWN_LAYER_SELECTOR).getByRole("option", { name: lookupTarget, exact: false }),
+    );
+    addStrategy(
+      `activeOptionText${index}`,
+      134 - offset,
+      page.locator(DROPDOWN_LAYER_SELECTOR).getByText(lookupTarget, { exact: false }),
+    );
+    addStrategy(
+      `activeDialogText${index}`,
+      128 - offset,
+      page.locator("[role='dialog'], .ant-modal, .ant-modal-root, .el-dialog, .el-drawer, .ant-drawer").getByText(lookupTarget, { exact: false }),
+    );
     addStrategy(`label${index}`, 126 - offset, page.getByLabel(lookupTarget, { exact: false }));
     addStrategy(`placeholder${index}`, 122 - offset, page.getByPlaceholder(lookupTarget, { exact: false }));
-    addStrategy(`comboboxRole${index}`, 118 - offset, page.getByRole("combobox", { name: lookupTarget }));
-    addStrategy(`optionRole${index}`, 114 - offset, page.getByRole("option", { name: lookupTarget }));
-    addStrategy(`buttonRole${index}`, 124 - offset, page.getByRole("button", { name: lookupTarget }));
+    addStrategy(`comboboxRole${index}`, 118 - offset, page.getByRole("combobox", { name: lookupTarget, exact: false }));
+    addStrategy(`optionRole${index}`, 114 - offset, page.getByRole("option", { name: lookupTarget, exact: false }));
+    addStrategy(`buttonRole${index}`, 124 - offset, page.getByRole("button", { name: lookupTarget, exact: false }));
     addStrategy(`text${index}`, 96 - offset, page.getByText(lookupTarget, { exact: false }));
   }
 
@@ -209,13 +375,20 @@ const buildCandidates = async (runId: string, target: string, maxCandidates: num
       if (!snapshot || isValidationOnlyNode(snapshot)) {
         continue;
       }
+      const context = await getCandidateContext(item);
+      if (context.activeLayerRole !== "none" && !context.insideTopLayer) {
+        continue;
+      }
+      if (!context.isTopMostAtPoint && !context.insideDropdownLayer) {
+        continue;
+      }
       const fingerprint = `${snapshot.tag}|${snapshot.text}|${snapshot.ariaLabel}|${snapshot.placeholder}|${snapshot.idAttr}`;
       if (dedupe.has(fingerprint)) {
         continue;
       }
       dedupe.add(fingerprint);
       const elementId = elementStore.set(runId, item, snapshot);
-      const adjustedScore = strategy.score - i + getScoreBias(target, strategy.name, snapshot);
+      const adjustedScore = strategy.score - i + getScoreBias(target, strategy.name, snapshot, context);
       candidates.push({
         element_id: elementId,
         strategy: strategy.name,

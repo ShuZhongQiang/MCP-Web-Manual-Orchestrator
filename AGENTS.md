@@ -111,6 +111,28 @@ YYYYMMDD_HHMMSSfff
 ]
 ```
 
+### Step 2.1：表单语义识别（必须）
+
+在真正执行前，Agent 必须先判断当前任务是否进入“表单场景”。
+
+触发为表单场景的典型信号：
+
+- 用户描述包含：`新增` / `创建` / `添加` / `编辑` / `填写表单` / `提交` / `保存` / `确认`
+- 页面出现弹窗、抽屉、编辑页，并存在多个输入控件
+- 后续步骤包含“点击确定/保存/提交”
+
+一旦判定为表单场景，必须先做“表单执行计划”，禁止直接按自然语言逐句盲点盲填。
+
+表单执行计划至少包含：
+
+- 字段名称
+- 控件类型：`input` / `textarea` / `select` / `combobox` / `radio` / `checkbox` / `date`
+- 是否必填
+- 值来源：用户明确提供 / 默认值自愈 / 页面校验返回
+- 执行动作：`input_text` / `click -> 选项 click`
+
+若用户只给出模糊描述（如“完善表单”“新增一个商品”），必须先补全所有必填项，再提交。
+
 
 ### Step 3：逐步执行（核心循环）
 
@@ -136,6 +158,11 @@ YYYYMMDD_HHMMSSfff
   - 已拿到稳定 `element_id` 且动作成功；
   - 上一步已经确认同页面同元素语义。
 
+复杂交互优先级：
+
+- 若怀疑已打开弹窗 / 抽屉 / 下拉 / Popover，优先调用 `inspect_active_layer` 判断当前有效作用域。
+- 若已进入表单场景，优先调用 `inspect_form` 获取字段摘要，而不是先用多个 `find_element` 逐个试探。
+
 #### ①.2 关键词优化策略（必须）
 - 优先提取短关键词：业务名词 + 控件词，如“登录 按钮”“手机号 输入框”。
 - 对点击类目标，先剥离动作词与冗余后缀（如“点击”“按钮”）再检索，避免误命中同名标题文本。
@@ -143,6 +170,33 @@ YYYYMMDD_HHMMSSfff
 - 当需要结构探测时，先 `inspect_summary(run_id, query=关键词, compact=true, max_elements<=20)`。
 - 仅在 `has_more=true` 或结果不足时再分页 (`offset`) 拉取下一页。
 - 细节字段按需使用 `inspect_detail(run_id, element_ids)` 拉取，避免整包展开。
+
+#### ①.3 表单感知执行策略（必须）
+
+- 一旦进入新增/编辑/提交类页面或弹窗，优先先执行 `inspect_active_layer(run_id)` 判断当前前景层，再执行 `inspect_form(run_id)` 获取表单字段计划。
+- 在首次提交前，仍需执行一次 `inspect_validation(run_id, max_issues?)` 做必填项预检。
+- `inspect_form` 的目标是返回“字段名 + 控件类型 + 是否必填 + element_id + 当前值摘要”，Agent 应优先据此生成表单执行计划。
+- 若 `inspect_validation` 已能返回 `missing_fields` 与 `issues[].element_id`，优先直接据此补齐，不要重复大范围探测。
+- 若必填字段名称不清晰、控件类型不明确、或一个字段对应多个候选元素，固定回退顺序为：
+  - `inspect_form`
+  - `inspect_validation`
+  - `inspect_active_layer`
+  - `inspect_summary(run_id, query="表单 输入框 下拉框 必填 保存", compact=true, max_elements<=20)`
+  - 必要时再 `inspect_detail(run_id, element_ids)`
+- Agent 必须根据控件类型决定动作，禁止把所有字段都当普通输入框处理：
+  - 文本框 / 文本域 / 数字框：`find_element -> input_text`
+  - 下拉框 / 组合框：`find_element -> click` 打开，再 `find_element` 目标选项，再 `click`
+  - 单选 / 复选 / 开关：`find_element -> click`
+  - 日期时间控件：优先 `input_text`；若不可直接输入，再按“打开控件 -> 选择项 click”执行
+  - 提交按钮：必须先做必填项预检，再执行提交
+- 对下拉框/组合框，打开后查找“目标选项”时，必须以当前打开的下拉层为唯一有效作用域。
+- 若打开下拉后找不到目标选项，必须判定为“该选项不存在或文案不匹配”，禁止回退选择遮罩层后方、弹窗外部或列表表格中的同名文本。
+- 当用户描述不完整时，字段填充优先级固定为：
+  1. 用户明确给出的字段值
+  2. `inspect_validation` 返回的必填字段
+  3. 与业务对象强相关的常见字段（如商品名、分类、价格、库存）
+  4. 其他非必填字段可不主动补
+- 表单中每个关键补齐动作都必须截图；如果补齐动作是点击型控件，同样遵守“先高亮截图再点击”规则。
 
 #### ② 调度 Skill 进行高亮截图（必须）
 - 必须调用 `highlight_and_capture`。
@@ -196,8 +250,11 @@ YYYYMMDD_HHMMSSfff
 - `input_text(element_id, value, run_id, text?, step?, retry_count?)`
 - `highlight_and_capture(element, step, action, text)`
 - `generate_manual(run_id, steps_json, clear_after_generate?)`
+- `inspect_active_layer(run_id, max_layers?, compact?)`
+- `inspect_form(run_id, max_fields?, include_optional?, compact?)`
 - `inspect_summary(run_id, ...)`
 - `inspect_detail(run_id, element_ids, compact?)`
+- `inspect_validation(run_id, max_issues?)`
 
 ---
 

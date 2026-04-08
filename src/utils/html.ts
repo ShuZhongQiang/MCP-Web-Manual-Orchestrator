@@ -25,6 +25,24 @@ const renderAudit = (item: StepRecord): string => {
   return `<p class="step-audit">${parts.join(" | ")}</p>`;
 };
 
+const renderNotes = (item: StepRecord): string => {
+  const details: string[] = [];
+  if ((item.missingFields?.length ?? 0) > 0) {
+    details.push(`提交前识别缺失字段: ${item.missingFields?.join("、")}`);
+  }
+  if ((item.filledFields?.length ?? 0) > 0) {
+    details.push(`自动补齐字段: ${item.filledFields?.join("、")}`);
+  }
+  if ((item.selfHealRounds ?? 0) > 0) {
+    details.push(`自愈重试轮次: ${item.selfHealRounds}`);
+  }
+  const notes = [...details, ...(item.notes ?? [])].filter((entry) => entry.trim().length > 0);
+  if (notes.length === 0) {
+    return "";
+  }
+  return `<ul class="step-notes">${notes.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("")}</ul>`;
+};
+
 const renderUrl = (item: StepRecord): string => {
   if (!item.pageUrlBefore && !item.pageUrlAfter) {
     return "";
@@ -37,6 +55,22 @@ const renderUrl = (item: StepRecord): string => {
     parts.push(`后 URL: ${escapeHtml(item.pageUrlAfter)}`);
   }
   return `<p class="step-url">${parts.join(" | ")}</p>`;
+};
+
+const renderEvidence = (item: StepRecord): string => {
+  const evidence = item.evidence ?? [];
+  if (evidence.length === 0) {
+    return "";
+  }
+  const cards = evidence
+    .map((entry) => {
+      const image = entry.image
+        ? `<img class="evidence-image" src="${escapeHtml(entry.image)}" alt="${escapeHtml(entry.label)}">`
+        : "";
+      return `<figure class="evidence-card">${image}<figcaption>${escapeHtml(entry.label)}</figcaption></figure>`;
+    })
+    .join("");
+  return `<div class="evidence-grid">${cards}</div>`;
 };
 
 const renderStep = (item: StepRecord): string => {
@@ -54,8 +88,10 @@ const renderStep = (item: StepRecord): string => {
             ${action}
             <p class="step-desc">${escapeHtml(item.desc)}</p>
             ${renderAudit(item)}
+            ${renderNotes(item)}
             ${renderUrl(item)}
             ${image}
+            ${renderEvidence(item)}
         </article>`;
 };
 
@@ -295,6 +331,16 @@ export const buildManualHtml = (runId: string, generatedAt: string, document: Ma
             font-size: 13px;
             line-height: 1.6;
         }
+        .step-notes {
+            margin: 12px 0 0;
+            padding-left: 18px;
+            color: var(--text);
+            font-size: 14px;
+            line-height: 1.7;
+        }
+        .step-notes li + li {
+            margin-top: 6px;
+        }
         .step-url {
             margin: 8px 0 0;
             color: var(--muted);
@@ -311,6 +357,31 @@ export const buildManualHtml = (runId: string, generatedAt: string, document: Ma
             border: 1px solid var(--line);
             border-radius: 12px;
             box-shadow: 0 10px 24px rgba(15, 45, 75, 0.08);
+        }
+        .evidence-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-top: 14px;
+        }
+        .evidence-card {
+            margin: 0;
+            padding: 12px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: var(--panel-soft);
+        }
+        .evidence-image {
+            display: block;
+            width: 100%;
+            border-radius: 10px;
+            border: 1px solid rgba(15, 108, 189, 0.12);
+        }
+        .evidence-card figcaption {
+            margin-top: 8px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--muted);
         }
         .footer {
             margin-top: 32px;
