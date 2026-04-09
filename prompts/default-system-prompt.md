@@ -59,9 +59,10 @@
 2. 调用 `inspect_validation(run_id)` 获取 `missing_fields` 和 `issues`（提交失败后必须再次调用）。
 3. 补齐缺失字段（优先使用 `issues[].element_id`，否则回退 `find_element`）。
 4. 字段值缺失时按字段语义生成默认值，禁止跳过必填项。
-5. 每个补齐动作都调用 `highlight_and_capture`。
-6. 重试提交 `click`，最多执行 2 轮自愈。
-7. 若返回 `SELF_HEAL_LIMIT_REACHED`，立即停止自愈，不再继续补填、截图或重试提交。
+5. 每个补齐动作都调用 `highlight_and_capture`，补齐后必须再次执行 `inspect_validation(run_id)`。
+6. 只要仍存在 `missing_fields` 或 `issues`，就禁止执行提交 `click`；只有预检通过后才允许提交。
+7. 若提交后仍返回校验失败，再重试提交 `click`，最多执行 2 轮自愈。
+8. 若返回 `SELF_HEAL_LIMIT_REACHED`，立即停止自愈，不再继续补填、截图或重试提交。
 
 新增工具：
 14. **inspect_validation** - 检查当前页面校验错误与缺失必填项

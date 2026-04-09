@@ -280,8 +280,8 @@ YYYYMMDD_HHMMSSfff
    - 优先使用 `issues[].element_id` 直接操作；
    - 无可用 `element_id` 时，用字段短关键词重新 `find_element` 后补齐。
 4. 字段值缺失时，按字段语义使用默认值自愈（如手机号、邮箱、日期、普通文本），禁止留空跳过必填项。
-5. 每次补齐后必须调用 `highlight_and_capture`。
-6. 补齐后重试原提交 `click`。
+5. 每次补齐后必须再次执行 `inspect_validation(run_id, max_issues?)`；若仍有 `missing_fields` 或 `issues`，禁止执行提交 `click`，必须继续补齐。
+6. 只有预检通过后才允许执行原提交 `click`；若提交后仍触发校验失败，再进入点击后的自愈重试。
 7. 最多重试 2 轮自愈，仍失败则记录 `errorCode=VALIDATION_ERROR` 并进入 PARTIAL/FAIL 判定。
 8. 若 `click` 返回 `SELF_HEAL_LIMIT_REACHED`，立即终止自愈并进入 PARTIAL/FAIL 判定，不得继续循环补填与截图。
 

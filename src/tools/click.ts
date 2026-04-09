@@ -911,6 +911,58 @@ const buildSelfHealSuccessMessage = (audit: SelfHealAudit): string => {
   return `Clicked successfully after validation self-heal: ${parts.join("; ")}`;
 };
 
+const runPreSubmitValidationGate = async ({
+  runId,
+  page,
+  step,
+  audit,
+}: {
+  runId: string;
+  page: Page;
+  step: number;
+  audit: SelfHealAudit;
+}): Promise<ValidationReport | undefined> => {
+  let validation = await inspectValidation({ runId, page });
+  if (!validation.failed) {
+    return undefined;
+  }
+
+  audit.missingFields = mergeUnique(audit.missingFields, validation.missingFields);
+  audit.notes = mergeUnique(audit.notes, [
+    `Pre-submit validation blocked click: ${validation.summary}`,
+  ]);
+
+  for (let round = 0; round < MAX_SELF_HEAL_ROUNDS && validation.failed; round += 1) {
+    const fillResult = await fillRequiredFields({
+      runId,
+      page,
+      validation,
+      step,
+      audit,
+    });
+    if (fillResult.filledCount === 0) {
+      break;
+    }
+
+    audit.rounds += 1;
+    await page.waitForTimeout(SELF_HEAL_RETRY_WAIT_MS);
+    validation = await inspectValidation({ runId, page });
+    audit.missingFields = mergeUnique(audit.missingFields, validation.missingFields);
+  }
+
+  if (validation.failed) {
+    audit.notes = mergeUnique(audit.notes, [
+      `Submit click prevented until validation passes: ${validation.summary}`,
+    ]);
+    return validation;
+  }
+
+  audit.notes = mergeUnique(audit.notes, [
+    "Pre-submit validation passed before submit click",
+  ]);
+  return undefined;
+};
+
 export const registerClickTool = (server: FastMCP): void => {
   const definition = {
     description: "点击元素",
@@ -957,26 +1009,41 @@ export const registerClickTool = (server: FastMCP): void => {
         elementId: element_id,
       });
 
+      let errorCode: string | undefined;
+      let lastValidation: ValidationReport | undefined;
+
       // Pre-submit validation check for form submission buttons
       if (shouldInspectValidation) {
-        const validation = await inspectValidation({ runId: run_id, page });
-        if (validation.failed) {
-          const fillResult = await fillRequiredFields({
-            runId: run_id,
-            page,
-            validation,
+        const blockedValidation = await runPreSubmitValidationGate({
+          runId: run_id,
+          page,
+          step: stepNumber,
+          audit: selfHealAudit,
+        });
+        if (blockedValidation) {
+          lastValidation = blockedValidation;
+          errorCode = "VALIDATION_ERROR";
+          stepRecorder.add(run_id, {
             step: stepNumber,
-            audit: selfHealAudit,
+            desc,
+            notes: selfHealAudit.notes,
+            evidence: selfHealAudit.evidence,
+            missingFields: selfHealAudit.missingFields,
+            filledFields: selfHealAudit.filledFields,
+            selfHealRounds: selfHealAudit.rounds,
+            action: "click",
+            status: "FAILED",
+            errorCode,
+            retryCount: 0,
+            latencyMs: Date.now() - startedAt,
+            pageUrlBefore,
+            pageUrlAfter: page.url(),
+            createdAt: new Date().toISOString(),
           });
-          if (fillResult.filledCount > 0) {
-            selfHealAudit.rounds += 1;
-            await page.waitForTimeout(300);
-          }
+          throw new Error(buildValidationErrorMessage(blockedValidation));
         }
       }
 
-      let errorCode: string | undefined;
-      let lastValidation: ValidationReport | undefined;
       let lastClickErrorMessage = "";
       const isCombo = isCombobox(snapshot);
       for (let retry = 0; retry <= retry_count; retry += 1) {
