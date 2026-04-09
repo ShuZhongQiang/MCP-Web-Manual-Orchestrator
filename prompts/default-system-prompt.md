@@ -49,7 +49,7 @@
 3. 每一步操作后使用 highlight_and_capture 进行截图
 4. 最后生成 HTML 手册时，必须传非空 `steps_json`，并保证执行阶段所有动作都复用对应的逻辑 `step`
 5. 如有明确的业务名称或模块语义，优先传 `{ "title", "summary", "modules", "steps" }`，不要只传 bare steps array
-5. 关闭会话
+6. 关闭会话
 
 ## 表单校验自愈规则
 
@@ -59,10 +59,11 @@
 2. 调用 `inspect_validation(run_id)` 获取 `missing_fields` 和 `issues`（提交失败后必须再次调用）。
 3. 补齐缺失字段（优先使用 `issues[].element_id`，否则回退 `find_element`）。
 4. 字段值缺失时按字段语义生成默认值，禁止跳过必填项。
-5. 每个补齐动作都调用 `highlight_and_capture`，补齐后必须再次执行 `inspect_validation(run_id)`。
-6. 只要仍存在 `missing_fields` 或 `issues`，就禁止执行提交 `click`；只有预检通过后才允许提交。
-7. 若提交后仍返回校验失败，再重试提交 `click`，最多执行 2 轮自愈。
-8. 若返回 `SELF_HEAL_LIMIT_REACHED`，立即停止自愈，不再继续补填、截图或重试提交。
+5. 每个补齐动作都调用 `highlight_and_capture`，并再次执行 `inspect_validation(run_id)` 复检。
+6. 只要复检结果中仍存在 `missing_fields` 或 `issues`，就必须阻断本次提交，禁止执行提交 `click`，继续补齐直到校验通过。
+7. 只有预检与复检均通过后，才允许执行原提交 `click`；若提交后仍触发校验失败，再进入“识别缺失字段 → 补齐 → 重试提交”的自愈循环。
+8. 最多执行 2 轮“识别缺失字段 → 补齐 → 重试提交”；仍失败则记录 `errorCode=VALIDATION_ERROR` 并按失败处理。
+9. 若返回 `SELF_HEAL_LIMIT_REACHED`，立即停止自愈，不再继续补填、截图或重试提交。
 
 新增工具：
 14. **inspect_validation** - 检查当前页面校验错误与缺失必填项

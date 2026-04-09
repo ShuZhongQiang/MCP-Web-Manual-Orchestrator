@@ -1,4 +1,4 @@
-
+﻿
 ---
 
 # ✅ TRAE Agent
@@ -111,13 +111,44 @@ YYYYMMDD_HHMMSSfff
 ]
 ```
 
+### Step 2.1：表单语义识别（必须）
+
+在真正执行前，Agent 必须先判断当前任务是否进入“表单场景”。
+
+触发为表单场景的典型信号：
+
+- 用户描述包含：`新增` / `创建` / `添加` / `编辑` / `填写表单` / `提交` / `保存` / `确认`
+- 页面出现弹窗、抽屉、编辑页，并存在多个输入控件
+- 后续步骤包含“点击确定/保存/提交”
+
+一旦判定为表单场景，必须先做“表单执行计划”，禁止直接按自然语言逐句盲点盲填。
+
+固定网关顺序：
+
+1. `inspect_active_layer(run_id)`
+2. `inspect_form(run_id, ...)`
+3. `compile_form_plan(run_id, user_intent, ...)`
+4. 后续字段执行只允许从 `compile_form_plan` 返回的 `pending_queue` 驱动，禁止回退为逐句盲填
+
+表单执行计划至少包含：
+
+- 字段名称
+- 控件类型：`input` / `textarea` / `select` / `combobox` / `radio` / `checkbox` / `date`
+- 是否必填
+- `element_id`
+- 当前值
+- 值来源：用户明确提供 / 默认值自愈 / 页面校验返回
+- 执行动作：`input_text` / `click -> 选项 click`
+
+若用户只给出模糊描述（如“完善表单”“新增一个商品”），必须先补全所有必填项，再提交。
+
 
 ### Step 3：逐步执行（核心循环）
 
 每一步必须执行：
 
 #### ① 调度 Skill 完成元素定位与动作执行
-- 定位优先级：文本 > aria-label > placeholder > role > CSS。
+- 定位优先级：语义定位（label/placeholder/role/button）> 文本 > CSS。
 - 动作类型：`navigate` / `click` / `input`。
 - 默认先用 `find_element(target)` 的最小返回模式，不主动拉取页面结构。
 - 所有执行类工具必须传 `run_id`，确保 run 级状态隔离。
@@ -136,12 +167,46 @@ YYYYMMDD_HHMMSSfff
   - 已拿到稳定 `element_id` 且动作成功；
   - 上一步已经确认同页面同元素语义。
 
+复杂交互优先级：
+
+- 若怀疑已打开弹窗 / 抽屉 / 下拉 / Popover，优先调用 `inspect_active_layer` 判断当前有效作用域。
+- 若已进入表单场景，优先调用 `inspect_form` 获取字段摘要，而不是先用多个 `find_element` 逐个试探。
+
 #### ①.2 关键词优化策略（必须）
 - 优先提取短关键词：业务名词 + 控件词，如“登录 按钮”“手机号 输入框”。
+- 对点击类目标，先剥离动作词与冗余后缀（如“点击”“按钮”）再检索，避免误命中同名标题文本。
 - 避免长句直接查找；先裁剪停用词（例如“请帮我”“然后”“这个”）。
 - 当需要结构探测时，先 `inspect_summary(run_id, query=关键词, compact=true, max_elements<=20)`。
 - 仅在 `has_more=true` 或结果不足时再分页 (`offset`) 拉取下一页。
 - 细节字段按需使用 `inspect_detail(run_id, element_ids)` 拉取，避免整包展开。
+
+#### ①.3 表单感知执行策略（必须）
+
+- 一旦进入新增/编辑/提交类页面或弹窗，优先先执行 `inspect_active_layer(run_id)` 判断当前前景层，再执行 `inspect_form(run_id)` 获取表单字段摘要。
+- 拿到字段摘要后，必须继续调用 `compile_form_plan(run_id, user_intent, ...)` 编译结构化“表单执行计划”，并从 `pending_queue` 驱动后续执行。
+- 在首次提交前，仍需执行一次 `inspect_validation(run_id, max_issues?)` 做必填项预检。
+- `inspect_form` 的目标是返回“字段名 + 控件类型 + 是否必填 + element_id + 当前值摘要”，`compile_form_plan` 负责把这些原始字段编译成“字段队列 + 值来源 + 预期动作 + 待处理优先级”。
+- 若 `inspect_validation` 已能返回 `missing_fields` 与 `issues[].element_id`，优先直接据此补齐，不要重复大范围探测。
+- 若必填字段名称不清晰、控件类型不明确、或一个字段对应多个候选元素，固定回退顺序为：
+  - `inspect_form`
+  - `inspect_validation`
+  - `inspect_active_layer`
+  - `inspect_summary(run_id, query="表单 输入框 下拉框 必填 保存", compact=true, max_elements<=20)`
+  - 必要时再 `inspect_detail(run_id, element_ids)`
+- Agent 必须根据控件类型决定动作，禁止把所有字段都当普通输入框处理：
+  - 文本框 / 文本域 / 数字框：`find_element -> input_text`
+  - 下拉框 / 组合框：`find_element -> click` 打开，再 `find_element` 目标选项，再 `click`
+  - 单选 / 复选 / 开关：`find_element -> click`
+  - 日期时间控件：优先 `input_text`；若不可直接输入，再按“打开控件 -> 选择项 click”执行
+  - 提交按钮：必须先做必填项预检，再执行提交
+- 对下拉框/组合框，打开后查找“目标选项”时，必须以当前打开的下拉层为唯一有效作用域。
+- 若打开下拉后找不到目标选项，必须判定为“该选项不存在或文案不匹配”，禁止回退选择遮罩层后方、弹窗外部或列表表格中的同名文本。
+- 当用户描述不完整时，字段填充优先级固定为：
+  1. 用户明确给出的字段值
+  2. `inspect_validation` 返回的必填字段
+  3. 与业务对象强相关的常见字段（如商品名、分类、价格、库存）
+  4. 其他非必填字段可不主动补
+- 表单中每个关键补齐动作都必须截图；如果补齐动作是点击型控件，同样遵守“先高亮截图再点击”规则。
 
 #### ② 调度 Skill 进行高亮截图（必须）
 - 必须调用 `highlight_and_capture`。
@@ -161,8 +226,6 @@ YYYYMMDD_HHMMSSfff
 ### Step 4：生成 HTML 手册
 
 - 调度 `generate_manual` 时必须传入非空 `steps_json`，禁止传空数组或依赖运行期原始执行日志自动生成。
-- `steps_json` 允许两种格式：旧版步骤数组，或 `{ "title", "summary", "modules", "steps" }` 对象；如能判断业务名称，优先显式传入标题与模块说明。
-- `steps_json.steps[*].desc` 应优先写成适合文档的完整操作说明，必要时可在忠于用户意图的前提下补充上下文。
 - `steps_json` 中的 `step` 必须与前面执行 `navigate/click/input_text/highlight_and_capture` 时传入的 `step` 完全一致。
 
 ---
@@ -197,8 +260,12 @@ YYYYMMDD_HHMMSSfff
 - `input_text(element_id, value, run_id, text?, step?, retry_count?)`
 - `highlight_and_capture(element, step, action, text)`
 - `generate_manual(run_id, steps_json, clear_after_generate?)`
+- `inspect_active_layer(run_id, max_layers?, compact?)`
+- `inspect_form(run_id, max_fields?, include_optional?, compact?)`
+- `compile_form_plan(run_id, user_intent?, max_fields?, include_optional?, max_issues?, compact?)`
 - `inspect_summary(run_id, ...)`
 - `inspect_detail(run_id, element_ids, compact?)`
+- `inspect_validation(run_id, max_issues?)`
 
 ---
 
@@ -269,46 +336,24 @@ YYYYMMDD_HHMMSSfff
 
 ## 十、表单校验自愈（必须执行）
 
-当提交类 `click` 触发表单校验失败时，Agent 必须继续执行自愈，而不是直接失败退出。
-若用户提供的表单信息明显不完整（例如仅提供部分字段），提交前也必须先做必填项预检并补齐。
+当执行“提交/保存/确认”类 `click` 后出现表单校验失败时，必须进入自愈流程，禁止直接结束任务。
+当用户表单描述不完整时，提交前也必须先执行一次必填项预检与补齐。
 
-### 固定自愈链路
+### 自愈流程
 
-1. 提交前（或提交失败后）调用 `inspect_validation(run_id, max_issues?)` 获取缺失字段与可操作线索。
-2. 读取 `click` 返回的 `VALIDATION_ERROR`（若有）。
-3. 按 `missing_fields` 逐项补齐：
-   - 优先使用 `issues[].element_id` 直接操作；
-   - 无可用 `element_id` 时，用字段短关键词重新 `find_element` 后补齐。
-4. 字段值缺失时，按字段语义使用默认值自愈（如手机号、邮箱、日期、普通文本），禁止留空跳过必填项。
-5. 每次补齐后必须再次执行 `inspect_validation(run_id, max_issues?)`；若仍有 `missing_fields` 或 `issues`，禁止执行提交 `click`，必须继续补齐。
-6. 只有预检通过后才允许执行原提交 `click`；若提交后仍触发校验失败，再进入点击后的自愈重试。
-7. 最多重试 2 轮自愈，仍失败则记录 `errorCode=VALIDATION_ERROR` 并进入 PARTIAL/FAIL 判定。
-8. 若 `click` 返回 `SELF_HEAL_LIMIT_REACHED`，立即终止自愈并进入 PARTIAL/FAIL 判定，不得继续循环补填与截图。
+1. 在提交前（或提交失败后）调用 `inspect_validation(run_id, max_issues?)` 获取 `missing_fields` 与 `issues`。
+2. 解析 `click` 返回的 `VALIDATION_ERROR` 信息（若有）。
+3. 对缺失字段逐一补齐：
+   - 若 `issues` 中存在可用 `element_id`，优先直接对该元素执行输入或选择动作；
+   - 若不存在可用 `element_id`，使用字段短关键词（如“种类 下拉框”）调用 `find_element` 再补齐。
+4. 若字段值缺失，按字段语义生成默认值补齐（如手机号、邮箱、日期、普通文本），禁止跳过必填项。
+5. 每个补齐动作完成后必须调用 `highlight_and_capture`，并再次执行 `inspect_validation(run_id, max_issues?)` 复检。
+6. 只要复检结果中仍存在 `missing_fields` 或 `issues`，就必须阻断本次提交，禁止执行提交 `click`，继续补齐直到校验通过。
+7. 只有预检与复检均通过后，才允许执行原提交 `click`；若提交后仍触发校验失败，再进入“识别缺失字段 → 补齐 → 重试提交”的自愈循环。
+8. 最多执行 2 轮“识别缺失字段 → 补齐 → 重试提交”；仍失败则记录 `errorCode=VALIDATION_ERROR`，并按 PARTIAL/FAIL 处理。
+9. 若 `click` 返回 `SELF_HEAL_LIMIT_REACHED`，必须立即停止自愈循环，禁止继续补填、截图或再次提交。
 
-### 自愈审计
+### 自愈审计要求
 
 - 必须记录：缺失字段、补齐动作、重试次数、最终状态。
-- 自愈关键步骤必须保留截图。
----
-
-## 十一、表单感知编排（必须执行）
-
-当用户目标包含“新增 / 创建 / 添加 / 编辑 / 完善表单 / 保存 / 提交 / 确定”时，Agent 必须先识别这是表单任务，再决定如何执行，禁止直接按自然语言逐句盲点盲填。
-
-### 固定流程
-
-1. 先把用户描述解析为结构化任务步骤。
-2. 识别是否进入表单场景：弹窗、抽屉、编辑页、详情表单页，或页面上出现多个输入控件。
-3. 一旦命中表单场景，固定先调用 `inspect_active_layer(run_id)`，再调用 `inspect_form(run_id, max_fields?, include_optional?, compact?)`。
-4. 拿到 `inspect_form` 结果后，必须调用 `compile_form_plan(run_id, user_intent, ...)`，把字段摘要编译成结构化“表单执行计划”。
-5. 表单执行计划至少包含：字段名、控件类型、是否必填、`element_id`、当前值、值来源、预期动作、待处理优先级。
-6. 后续表单执行不得再直接从用户原始描述逐句驱动，只能从 `compile_form_plan` 返回的 `pending_queue` 驱动。
-7. 若进入表单场景，在首次填写字段或首次提交前，优先调用 `inspect_validation(run_id, max_issues?)` 做必填项预检；若 `compile_form_plan` 已汇总缺失字段，优先复用该队列。
-8. 若 `inspect_validation` 已给出 `issues[].element_id`，或 `compile_form_plan` / `inspect_form` 已给出字段 `element_id`，优先直接操作这些元素；仅在字段语义不清、候选冲突高、控件类型不明确时，才调用 `inspect_summary` / `inspect_detail`。
-9. 根据控件类型执行：
-   - 文本框 / 文本域 / 数字框：`input_text`
-   - 下拉框 / 组合框：先 `click` 打开，再定位目标选项 `click`
-   - 单选 / 复选 / 开关：`click`
-   - 日期时间：优先直接输入；不可输入时再打开控件选择
-10. 当用户只模糊地说“完善表单”“新增一个商品”时，必须主动补齐全部必填项；至少所有必填项都要进入 `pending_queue`，不得只填写少数字段后直接提交。
-11. 所有补齐动作都必须截图，并写入最终手册步骤说明或审计说明。
+- 自愈过程中的关键步骤必须有截图。
