@@ -20,26 +20,50 @@
 
 ---
 
+## ⚠️ 结果验证步骤必须使用专用工具
+
+当步骤属于**验证/确认类场景**时，**禁止使用 `find_element` + `highlight_and_capture`**，必须改用 `verify_and_capture`：
+
+**触发条件：**
+- 步骤描述包含：`确认` / `验证` / `检查` / `确认结果` / `查看是否成功` / `确认新增` / `返回列表确认`
+- 目标是在列表/表格中查找新增的数据记录
+- 操作后回到列表页面确认数据变化
+
+**正确用法：**
+```
+verify_and_capture(run_id, search_text="张三", action="确认新增会员", text="确认新增会员结果", context_hint="会员列表", highlight_mode="row")
+```
+
+**原因：** `find_element` 只能定位交互控件（按钮、输入框），无法找到表格 `<td>` 中的文本。在验证场景下会 fallback 到错误元素（如搜索框）。
+
+**新增验证类工具：**
+- `find_text_in_page(run_id, search_text, ...)` — 全页面搜索文本（包括表格单元格等非交互元素）
+- `verify_and_capture(run_id, search_text, ...)` — 搜索+高亮+截图一步完成，专用于确认/验证场景
+
+---
+
 ## 可用工具列表
 
 如果 web-manual-generator Skill 不可用，请直接使用以下 MCP 工具：
 
 0. **begin_step** - 由 runtime 分配并激活当前逻辑步骤 step_id
 1. **navigate** - 打开指定网页 URL
-2. **find_element** - 定位页面元素
-3. **click** - 点击元素
-4. **input_text** - 在输入框中输入内容
-5. **highlight_and_capture** - 高亮元素并截图
-6. **generate_manual** - 生成 HTML 操作手册
-7. **inspect_summary** - 获取页面摘要信息
-8. **inspect_detail** - 获取元素详细信息
-9. **list_elements** - 列出当前缓存的元素
-10. **get_run_context** - 获取步骤上下文
-11. **close_session** - 关闭浏览器会话
-12. **inspect_active_layer** - 识别当前前景层（弹窗 / 下拉 / 抽屉 / popover）
-13. **inspect_form** - 识别当前表单字段、控件类型、是否必填与当前值摘要
-14. **inspect_validation** - 检查当前页面校验错误与缺失必填项
-15. **compile_form_plan** - 把当前表单摘要、校验线索和用户意图编译成结构化待执行队列
+2. **find_element** - 定位页面元素（仅限交互式控件）
+3. **find_text_in_page** - 在全页面查找文本（包括表格单元格 td/th 等非交互元素），用于验证数据是否出现在列表中
+4. **click** - 点击元素
+5. **input_text** - 在输入框中输入内容
+6. **highlight_and_capture** - 高亮交互控件并截图
+7. **verify_and_capture** - 结果验证专用截图：搜索文本→定位区域→高亮整行→截图，专用于确认新增数据、验证操作结果
+8. **generate_manual** - 生成 HTML 操作手册
+9. **inspect_summary** - 获取页面摘要信息
+10. **inspect_detail** - 获取元素详细信息
+11. **list_elements** - 列出当前缓存的元素
+12. **get_run_context** - 获取步骤上下文
+13. **close_session** - 关闭浏览器会话
+14. **inspect_active_layer** - 识别当前前景层（弹窗 / 下拉 / 抽屉 / popover）
+15. **inspect_form** - 识别当前表单字段、控件类型、是否必填与当前值摘要
+16. **inspect_validation** - 检查当前页面校验错误与缺失必填项
+17. **compile_form_plan** - 把当前表单摘要、校验线索和用户意图编译成结构化待执行队列
 
 ---
 

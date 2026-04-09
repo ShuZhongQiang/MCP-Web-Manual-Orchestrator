@@ -50,6 +50,39 @@
 
 ---
 
+### ❗ 原则3.5：结果验证步骤必须使用专用工具（⚠️ 重要）
+
+当步骤属于以下**验证/确认类场景**时，**禁止使用 `find_element` + `highlight_and_capture`**，必须改用 `verify_and_capture`：
+
+**触发条件（满足任一即视为验证类步骤）：**
+- 步骤描述包含：`确认` / `验证` / `检查` / `确认结果` / `查看是否成功` / `确认新增` / `返回列表确认`
+- 步骤目标是：在列表/表格中查找新增的数据记录
+- 步骤目标是：操作后回到列表页面确认数据变化
+- 操作类型为"查看"且目的是验证前序操作的结果
+
+**正确做法：**
+```
+✅ verify_and_capture(
+    run_id, 
+    search_text="张三",          // 新增数据的关键字段值
+    action="确认新增会员",       // 动作描述
+    text="确认新增会员结果",      // 步骤描述
+    context_hint="会员列表",     // 上下文提示（帮助精确定位到正确的表格）
+    highlight_mode="row"         // 高亮模式：row=高亮整行(推荐用于表格)
+)
+```
+
+**为什么不能使用 find_element？**
+- `find_element` 只能定位交互式控件（按钮、输入框等），**无法找到表格单元格 `<td>` 中的纯文本内容**
+- 在验证新增数据时，目标文本（如"张三"）通常在表格的 `<td>` 中，不是交互元素
+- 使用 `find_element` 会 fallback 到页面上最接近的交互控件（如搜索框），导致高亮位置错误
+
+**可用的新工具：**
+- **`find_text_in_page(run_id, search_text, exact_match?, max_results?, context_hint?)`** — 在全页面范围内搜索文本（包括非交互元素如表格 td/th），返回匹配元素的 container_type（cell/row/block/element）和 element_id。适用于需要先定位再决定下一步的场景。
+- **`verify_and_capture(run_id, search_text, step?, action?, text?, context_hint?, highlight_mode?)`** — 搜索 + 高亮 + 截图一步完成，专为结果验证设计。highlight_mode 支持 "row"（高亮整行，推荐表格场景）、"element"（高亮元素本身）、"region"（高亮周围区域）。
+
+---
+
 ### ❗ 原则4：截图时机按动作类型选择
 
 流程顺序必须是：
@@ -259,9 +292,11 @@ YYYYMMDD_HHMMSSfff
 - `navigate(run_id, url, text?, step?)`
 - `find_element(run_id, target, return_candidates?, max_candidates?, retry_count?)`
 - `find_candidates(run_id, target, max_candidates?, retry_count?)`
+- `find_text_in_page(run_id, search_text, exact_match?, max_results?, context_hint?)` — **在页面中查找文本内容（包括非交互元素如表格单元格），用于验证新增数据是否出现在列表中**
 - `click(element_id, run_id, text?, step?, retry_count?)`
 - `input_text(element_id, value, run_id, text?, step?, retry_count?)`
 - `highlight_and_capture(element, step?, action, text?)`
+- `verify_and_capture(run_id, search_text, step?, action?, text?, context_hint?, highlight_mode?)` — **结果验证专用截图：搜索文本 → 定位区域 → 高亮整行/元素 → 截图，专用于确认新增数据、验证操作结果等场景**
 - `generate_manual(run_id, steps_json?, clear_after_generate?)`
 - `inspect_active_layer(run_id, max_layers?, compact?)`
 - `inspect_form(run_id, max_fields?, include_optional?, compact?)`

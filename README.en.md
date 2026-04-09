@@ -182,6 +182,8 @@ Default fallback values for form auto-fill are centralized in [src/utils/default
 
 An example override file is provided at [examples/default-field-policy.example.json].
 
+A practical task-description template for agent calls is provided at [examples/任务描述示例.md].
+
 Load an external policy file:
 
 ```bash
@@ -256,6 +258,7 @@ The recommended stack is:
 - System prompt: `prompts/system-prompt.md`
 - Fallback prompt: `prompts/default-system-prompt.md`
 - IDE skill: `ide-configs/trae/skills/web-manual-generator/SKILL.md`
+- Task description template: `examples/任务描述示例.md`
 
 This combination makes it much less likely that the model bypasses MCP and writes automation scripts on its own.
 

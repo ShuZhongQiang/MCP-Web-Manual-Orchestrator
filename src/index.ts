@@ -9,12 +9,14 @@ import { stepRecorder } from "./core/stepRecorder.js";
 import { logicalStepStore } from "./core/logicalStepStore.js";
 import { registerClickTool } from "./tools/click.js";
 import { registerFindTool } from "./tools/find.js";
+import { registerFindTextTool } from "./tools/findText.js";
 import { registerGenerateManualTool } from "./tools/generateManual.js";
 import { registerInsightTools } from "./tools/insight.js";
 import { registerInputTool } from "./tools/input.js";
 import { registerNavigateTool } from "./tools/navigate.js";
 import { registerScreenshotTool } from "./tools/screenshot.js";
 import { registerStepTool } from "./tools/step.js";
+import { registerVerifyAndCaptureTool } from "./tools/verifyCapture.js";
 
 const main = async () => {
   const server = new FastMCP({
@@ -25,9 +27,11 @@ const main = async () => {
   registerNavigateTool(server);
   registerStepTool(server);
   registerFindTool(server);
+  registerFindTextTool(server);       // 新增：支持在非交互元素（表格 td 等）中查找文本
   registerClickTool(server);
   registerInputTool(server);
   registerScreenshotTool(server);
+  registerVerifyAndCaptureTool(server); // 新增：验证结果并截图（自动高亮整行）
   registerGenerateManualTool(server);
   registerInsightTools(server);
 

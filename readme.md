@@ -182,6 +182,8 @@ MANUALS_DIR=D:\custom-manuals
 
 仓库内提供了一个可直接参考的示例文件：[examples/default-field-policy.example.json]。
 
+任务描述写法的标准示例见：[examples/任务描述示例.md]。
+
 通过外部 JSON 文件加载策略：
 
 ```bash
@@ -256,6 +258,7 @@ npm run dev
 - 系统 Prompt：`prompts/system-prompt.md`
 - 默认兜底 Prompt：`prompts/default-system-prompt.md`
 - IDE Skill：`ide-configs/trae/skills/web-manual-generator/SKILL.md`
+- 任务描述模板：`examples/任务描述示例.md`
 
 这样可以最大限度避免模型绕开工具、直接写自动化脚本。
 
