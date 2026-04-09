@@ -1077,7 +1077,7 @@ export const registerInsightTools = (server: FastMCP): void => {
   });
 
   const inspectDetailDefinition = {
-    description: "Return detailed info for specified element_id",
+    description: "返回指定 element_id 的详细信息 | Return detailed info for specified element_id",
     parameters: z.object({
       run_id: z.string().min(1),
       element_ids: z.array(z.string().min(1)).min(1).max(200),
@@ -1120,7 +1120,7 @@ export const registerInsightTools = (server: FastMCP): void => {
   });
 
   const inspectActiveLayerDefinition = {
-    description: "Inspect the current top-most interactive layer such as dialog, drawer, dropdown, or popover",
+    description: "检查当前最顶层的交互层，如对话框、抽屉、下拉菜单或弹出层 | Inspect the current top-most interactive layer such as dialog, drawer, dropdown, or popover",
     parameters: z.object({
       run_id: z.string().min(1),
       max_layers: z.number().int().min(1).max(10).default(3),
@@ -1179,7 +1179,7 @@ export const registerInsightTools = (server: FastMCP): void => {
   });
 
   const inspectFormDefinition = {
-    description: "Inspect the current active form scope and return field summaries with control types and required hints",
+    description: "检查当前活动的表单作用域，返回字段摘要、控件类型和必填提示 | Inspect the current active form scope and return field summaries with control types and required hints",
     parameters: z.object({
       run_id: z.string().min(1),
       max_fields: z.number().int().min(1).max(80).default(30),
@@ -1272,7 +1272,7 @@ export const registerInsightTools = (server: FastMCP): void => {
 
   const compileFormPlanDefinition = {
     description:
-      "Compile a form-mode execution gateway plan from active layer, form fields, validation hints, and optional user intent",
+      "从活动层、表单字段、验证提示和可选用户意图编译表单模式执行网关计划 | Compile a form-mode execution gateway plan from active layer, form fields, validation hints, and optional user intent",
     parameters: z.object({
       run_id: z.string().min(1),
       user_intent: z.string().optional(),
@@ -1425,7 +1425,7 @@ export const registerInsightTools = (server: FastMCP): void => {
   });
 
   const inspectValidationDefinition = {
-    description: "Inspect current page validation errors and missing required fields",
+    description: "检查当前页面的验证错误和缺失的必填字段 | Inspect current page validation errors and missing required fields",
     parameters: z.object({
       run_id: z.string().min(1),
       max_issues: z.number().int().min(1).max(20).default(8),
@@ -1453,7 +1453,7 @@ export const registerInsightTools = (server: FastMCP): void => {
   });
 
   const elementMemoryDefinition = {
-    description: "查看最近缓存的 element_id 与其摘要信息",
+    description: "查看最近缓存的 element_id 与其摘要信息 | View recently cached element_ids and their summaries",
     parameters: z.object({
       run_id: z.string().min(1),
       limit: z.number().int().min(1).max(200).default(30),
@@ -1474,7 +1474,7 @@ export const registerInsightTools = (server: FastMCP): void => {
   });
 
   const runContextDefinition = {
-    description: "返回某个 run_id 的步骤上下文",
+    description: "返回某个 run_id 的步骤上下文 | Return step context for a specific run_id",
     parameters: z.object({
       run_id: z.string().min(1),
       limit: z.number().int().min(1).max(500).default(100),

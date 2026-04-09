@@ -1058,7 +1058,7 @@ const runPreSubmitValidationGate = async ({
 
 export const registerClickTool = (server: FastMCP): void => {
   const definition = {
-    description: "点击元素",
+    description: "点击元素 | Click element",
     parameters: z.object({
       element_id: z.string().min(1),
       run_id: z.string().min(1),

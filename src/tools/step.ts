@@ -5,7 +5,7 @@ import { logicalStepStore } from "../core/logicalStepStore.js";
 export const registerStepTool = (server: FastMCP): void => {
   server.addTool({
     name: "begin_step",
-    description: "Start a runtime-managed logical step and allocate a shared step_id",
+    description: "启动运行时管理的逻辑步骤并分配共享 step_id | Start a runtime-managed logical step and allocate a shared step_id",
     parameters: z.object({
       run_id: z.string().min(1),
       desc: z.string().min(1).optional(),

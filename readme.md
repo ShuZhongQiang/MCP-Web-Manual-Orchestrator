@@ -115,7 +115,6 @@ manualsByAi/run_<runId>/
 |     `- skills/web-manual-generator/SKILL.md
 |- manualsByAi/            # 运行产物输出目录
 |- dist/
-|- AGENTS.md
 |- package.json
 `- readme.md
 ```
@@ -178,9 +177,9 @@ MANUALS_DIR=D:\custom-manuals
 
 ## 默认字段值策略配置
 
-表单自动补值的默认策略已经统一收口到 [src/utils/defaultFieldPolicy.ts](/d:/AI-agent/Node_Fast_Mcp_Web_Manual_Agent/src/utils/defaultFieldPolicy.ts)。这套策略会同时被表单规划阶段和运行时自愈补填复用，后续维护默认值时不需要再分别修改多个工具文件。
+表单自动补值的默认策略已经统一收口到 [src/utils/defaultFieldPolicy.ts]。这套策略会同时被表单规划阶段和运行时自愈补填复用，后续维护默认值时不需要再分别修改多个工具文件。
 
-仓库内提供了一个可直接参考的示例文件：[examples/default-field-policy.example.json](/d:/AI-agent/Node_Fast_Mcp_Web_Manual_Agent/examples/default-field-policy.example.json)。
+仓库内提供了一个可直接参考的示例文件：[examples/default-field-policy.example.json]。
 
 通过外部 JSON 文件加载策略：
 

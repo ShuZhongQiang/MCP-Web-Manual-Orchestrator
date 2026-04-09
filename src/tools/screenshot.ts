@@ -48,7 +48,7 @@ const resolveScreenshotStep = ({
 export const registerScreenshotTool = (server: FastMCP): void => {
   server.addTool({
     name: "highlight_and_capture",
-    description: "Capture highlighted element screenshot",
+    description: "捕获高亮元素截图 | Capture highlighted element screenshot",
     parameters: z.object({
       element_id: z.string().min(1),
       step: z.number().int().nonnegative().optional(),

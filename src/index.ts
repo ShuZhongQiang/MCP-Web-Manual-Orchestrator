@@ -33,7 +33,7 @@ const main = async () => {
 
   server.addTool({
     name: "close_session",
-    description: "结束当前 run 的浏览器会话并清理内存",
+    description: "结束当前 run 的浏览器会话并清理内存 | End the current run's browser session and clean up memory",
     parameters: z.object({
       run_id: z.string().min(1),
     }),

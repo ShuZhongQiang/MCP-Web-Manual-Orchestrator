@@ -723,7 +723,7 @@ export const registerFindTool = (server: FastMCP): void => {
 
   server.addTool({
     name: "find_element",
-    description: "定位页面元素",
+    description: "定位页面元素 | Locate page elements",
     parameters: baseParameters.extend({
       return_candidates: z.boolean().default(false),
     }),

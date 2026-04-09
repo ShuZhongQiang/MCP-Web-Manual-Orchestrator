@@ -615,7 +615,7 @@ const buildManualDocument = (
 
 export const registerGenerateManualTool = (server: FastMCP): void => {
   const definition = {
-    description: "生成 HTML 操作手册",
+    description: "生成 HTML 操作手册 | Generate HTML operation manual",
     parameters: z.object({
       steps_json: z.string().default("[]"),
       run_id: z.string().min(1),

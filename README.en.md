@@ -115,7 +115,6 @@ The MCP tools currently exported by the codebase are:
 |     `- skills/web-manual-generator/SKILL.md
 |- manualsByAi/            # Output directory for generated artifacts
 |- dist/
-|- AGENTS.md
 |- package.json
 `- readme.md
 ```
@@ -178,9 +177,9 @@ If you pass a relative path, it is resolved from the project root.
 
 ## Default Field Value Policy
 
-Default fallback values for form auto-fill are centralized in [src/utils/defaultFieldPolicy.ts](/d:/AI-agent/Node_Fast_Mcp_Web_Manual_Agent/src/utils/defaultFieldPolicy.ts). This policy is shared by both form planning and runtime self-healing, so there is only one place to maintain field defaults.
+Default fallback values for form auto-fill are centralized in [src/utils/defaultFieldPolicy.ts]. This policy is shared by both form planning and runtime self-healing, so there is only one place to maintain field defaults.
 
-An example override file is provided at [examples/default-field-policy.example.json](/d:/AI-agent/Node_Fast_Mcp_Web_Manual_Agent/examples/default-field-policy.example.json).
+An example override file is provided at [examples/default-field-policy.example.json].
 
 Load an external policy file:
 

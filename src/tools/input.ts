@@ -8,7 +8,7 @@ import { stepRecorder } from "../core/stepRecorder.js";
 export const registerInputTool = (server: FastMCP): void => {
   server.addTool({
     name: "input_text",
-    description: "输入内容",
+    description: "输入内容 | Input content",
     parameters: z.object({
       element_id: z.string().min(1),
       value: z.string(),

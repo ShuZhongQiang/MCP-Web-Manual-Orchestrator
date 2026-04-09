@@ -7,10 +7,10 @@ import { stepRecorder } from "../core/stepRecorder.js";
 export const registerNavigateTool = (server: FastMCP): void => {
   server.addTool({
     name: "navigate",
-    description: "打开网页",
+    description: "打开网页 | Open web page",
     parameters: z.object({
       run_id: z.string().min(1),
-      url: z.string().url(),
+      url: z.url(),
       text: z.string().min(1).optional(),
       step: z.number().int().positive().optional(),
     }),
