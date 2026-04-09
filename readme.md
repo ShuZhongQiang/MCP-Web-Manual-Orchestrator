@@ -34,7 +34,7 @@
 - 表单校验自愈
   - 提交前预检必填项，提交后若出现校验错误，会尝试自动补齐并重试。
 - 表单感知编排
-  - Agent 在新增/编辑/提交类任务中需要先识别当前前景层和表单字段计划，再预检必填项、区分控件类型，最后决定是 `input_text` 还是 `click -> 选项 click`。
+  - Agent 在新增/编辑/提交类任务中需要先识别当前前景层和表单字段摘要，再通过 `compile_form_plan` 编译成待执行队列，最后才允许驱动填写或提交。
 - 审计字段完整
   - 步骤记录包含 `status`、`errorCode`、`retryCount`、`latencyMs`、`pageUrlBefore`、`pageUrlAfter`。
 - HTML 手册直接产出
@@ -59,7 +59,7 @@ Agent / Skill Orchestration
 FastMCP Server
    |
    +-- navigate / find_element / click / input_text
-   +-- inspect_summary / inspect_detail / inspect_validation
+   +-- inspect_summary / inspect_detail / inspect_active_layer / inspect_form / compile_form_plan / inspect_validation
    +-- highlight_and_capture / generate_manual / close_session
    |
    v
@@ -86,6 +86,7 @@ manualsByAi/run_<runId>/
 | `inspect_detail` | 查看指定 `element_id` 的详细快照 |
 | `inspect_active_layer` | 识别当前前景层，判断是否存在弹窗、抽屉、下拉或 popover，并给出当前有效作用域 |
 | `inspect_form` | 识别当前表单字段、控件类型、是否必填、当前值摘要与可复用 `element_id` |
+| `compile_form_plan` | 把表单字段摘要、校验线索和用户意图编译成结构化待执行队列 |
 | `inspect_validation` | 识别页面校验错误和缺失必填项 |
 | `list_elements` | 查看当前 run 最近缓存的元素摘要 |
 | `get_run_context` | 查看当前 run 的步骤上下文 |
@@ -281,13 +282,15 @@ MIT
 1. 先把用户自然语言解析成结构化步骤，不要直接执行原始长句。
 2. 当任务包含“新增 / 创建 / 添加 / 编辑 / 完善表单 / 保存 / 提交 / 确定”等语义时，先判断当前页面是否进入表单场景。
 3. 若当前可能已经打开弹窗、下拉、抽屉或 popover，先调用 `inspect_active_layer(run_id)` 确认当前前景层与有效作用域。
-4. 一旦进入表单场景，在首次填写字段或首次提交前，优先调用 `inspect_form(run_id, ...)` 获取字段摘要，再调用 `inspect_validation(run_id, max_issues?)` 获取必填项。
-5. 若 `inspect_validation` 已返回 `issues[].element_id`，或 `inspect_form` 已返回字段 `element_id`，优先直接据此操作；仅在字段语义或控件类型仍不清晰时，再调用 `inspect_summary` / `inspect_detail`。
-6. Agent 必须根据控件类型决定动作：
+4. 一旦进入表单场景，固定先调用 `inspect_active_layer(run_id)`，再调用 `inspect_form(run_id, ...)`。
+5. 拿到 `inspect_form` 结果后，必须调用 `compile_form_plan(run_id, user_intent, ...)`，把字段摘要编译成结构化执行计划；后续执行只能从 `pending_queue` 驱动。
+6. 在首次填写字段或首次提交前，再调用 `inspect_validation(run_id, max_issues?)` 获取必填项；若 `compile_form_plan` 已汇总缺失字段，优先复用该队列。
+7. 若 `inspect_validation` 已返回 `issues[].element_id`，或 `compile_form_plan` / `inspect_form` 已返回字段 `element_id`，优先直接据此操作；仅在字段语义或控件类型仍不清晰时，再调用 `inspect_summary` / `inspect_detail`。
+8. Agent 必须根据控件类型决定动作：
    - 输入框 / 文本域 / 数字框：`input_text`
    - 下拉框 / 组合框：先 `click` 打开，再定位选项并 `click`
    - 单选 / 复选 / 开关：`click`
    - 日期时间控件：优先直接输入；不能输入时再打开控件选择
-7. 下拉框打开后，目标选项的搜索作用域必须限定在 `inspect_active_layer` 返回的当前下拉层；找不到就应判定“选项不存在”，不能回退点击页面其他同名文本。
-8. 当用户只模糊描述“完善表单”“新增一个商品”时，必须主动补齐全部必填项，而不是只填写用户提到的少数字段。
-9. 所有补齐动作都属于关键步骤，必须截图，并在最终手册中保留说明或审计字段。
+9. 下拉框打开后，目标选项的搜索作用域必须限定在 `inspect_active_layer` 返回的当前下拉层；找不到就应判定“选项不存在”，不能回退点击页面其他同名文本。
+10. 当用户只模糊描述“完善表单”“新增一个商品”时，必须主动补齐全部必填项；至少所有必填项都要进入 `pending_queue`，而不是只填写用户提到的少数字段。
+11. 所有补齐动作都属于关键步骤，必须截图，并在最终手册中保留说明或审计字段。

@@ -37,6 +37,8 @@
 11. **close_session** - 关闭浏览器会话
 12. **inspect_active_layer** - 识别当前前景层（弹窗 / 下拉 / 抽屉 / popover）
 13. **inspect_form** - 识别当前表单字段、控件类型、是否必填与当前值摘要
+14. **inspect_validation** - 检查当前页面校验错误与缺失必填项
+15. **compile_form_plan** - 把当前表单摘要、校验线索和用户意图编译成结构化待执行队列
 
 ---
 
@@ -62,23 +64,26 @@
 7. 若返回 `SELF_HEAL_LIMIT_REACHED`，立即停止自愈，不再继续补填、截图或重试提交。
 
 新增工具：
-12. **inspect_validation** - 检查当前页面校验错误与缺失必填项
+14. **inspect_validation** - 检查当前页面校验错误与缺失必填项
+15. **compile_form_plan** - 编译表单模式执行计划，返回 `pending_queue`
 
 ## 表单感知编排规则
 
 当任务包含“新增 / 创建 / 添加 / 编辑 / 完善表单 / 保存 / 提交 / 确定”等语义时，不要直接顺着自然语言盲点盲填，必须先按下面流程编排：
 
 1. 先判断当前页面是否进入表单场景：弹窗、抽屉、编辑页、详情表单页，或页面上出现多个输入控件。
-2. 若已进入表单场景，在第一次填写字段或第一次点击提交按钮前，先调用 `inspect_validation(run_id, max_issues?)` 做必填项预检。
-3. 若当前可能存在弹窗、下拉、抽屉或 popover，先调用 `inspect_active_layer(run_id)` 确认当前有效作用域。
-4. 进入表单场景后，优先调用 `inspect_form(run_id, max_fields?, include_optional?, compact?)` 获取字段执行计划。
-5. 若 `inspect_validation` 已返回 `issues[].element_id`，优先直接操作该元素；若 `inspect_form` 已返回字段 `element_id`，优先使用这些 element id，不要先做整页探测。
-6. 仅在 `inspect_form + inspect_validation + inspect_active_layer` 仍然无法消除歧义时，才调用 `inspect_summary(run_id, query="表单 输入框 下拉框 必填 保存", compact=true, max_elements<=20)`，并按需配合 `inspect_detail`。
-7. 控件类型必须区分执行：
+2. 若已进入表单场景，固定先调用 `inspect_active_layer(run_id)`，再调用 `inspect_form(run_id, max_fields?, include_optional?, compact?)`。
+3. 拿到 `inspect_form` 结果后，必须调用 `compile_form_plan(run_id, user_intent, ...)`，把字段摘要编译成结构化执行计划。
+4. 后续字段执行只能从 `compile_form_plan` 返回的 `pending_queue` 驱动；禁止回退为按用户原始描述逐句盲填。
+5. 在第一次填写字段或第一次点击提交按钮前，先调用 `inspect_validation(run_id, max_issues?)` 做必填项预检；若 `compile_form_plan` 已包含缺失字段队列，优先复用该结果。
+6. 若 `inspect_validation` 已返回 `issues[].element_id`，优先直接操作该元素；若 `inspect_form` / `compile_form_plan` 已返回字段 `element_id`，优先使用这些 element id，不要先做整页探测。
+7. 仅在 `inspect_form + compile_form_plan + inspect_validation + inspect_active_layer` 仍然无法消除歧义时，才调用 `inspect_summary(run_id, query="表单 输入框 下拉框 必填 保存", compact=true, max_elements<=20)`，并按需配合 `inspect_detail`。
+8. 表单执行计划至少要包含：字段名、控件类型、是否必填、`element_id`、当前值、值来源、预期动作、队列优先级。
+9. 控件类型必须区分执行：
    - 输入框 / 文本域 / 数字框：`find_element -> input_text`
    - 下拉框 / 组合框：`find_element -> click` 打开，再定位目标选项并 `click`
    - 单选 / 复选 / 开关：`find_element -> click`
    - 日期时间：优先直接输入；不能输入时再打开控件点击选择
-8. 下拉框打开后，查找目标选项时必须把 `inspect_active_layer` 返回的当前下拉层当作唯一合法作用域；找不到该选项时，应判定“选项不存在或文案不匹配”，不能回退选择页面其他区域的同名文本。
-9. 当用户只模糊描述“完善表单”“新增一个商品”时，必须主动补齐所有必填项；不要只填写用户显式提到的 1-2 个字段就提交。
-10. 表单中的补齐动作属于关键步骤，必须调用 `highlight_and_capture`，并把这些补齐动作体现在最终手册中。
+10. 下拉框打开后，查找目标选项时必须把 `inspect_active_layer` 返回的当前下拉层当作唯一合法作用域；找不到该选项时，应判定“选项不存在或文案不匹配”，不能回退选择页面其他区域的同名文本。
+11. 当用户只模糊描述“完善表单”“新增一个商品”时，必须主动补齐所有必填项；至少所有必填项都要进入 `pending_queue`，不要只填写用户显式提到的 1-2 个字段就提交。
+12. 表单中的补齐动作属于关键步骤，必须调用 `highlight_and_capture`，并把这些补齐动作体现在最终手册中。

@@ -225,6 +225,7 @@ const isNameLikeField = (field: FormFieldRecord): boolean => {
   return buildFieldKeys(field).some((item) => /(名称|name|title|product|商品名|项目名)/i.test(item));
 };
 
+/*
 const extractUserProvidedValue = (
   userIntent: string | undefined,
   field: FormFieldRecord,
@@ -246,6 +247,45 @@ const extractUserProvidedValue = (
       ),
       new RegExp(
         `(?:将|把)\\s*${escaped}\\s*(?:设置|设成|改成|改为|设为)?\\s*[“"'`]?(.*?)[”"'`]?($|[，。,；;\\n])`,
+        "iu",
+      ),
+    ];
+    for (const pattern of patterns) {
+      const value = pattern.exec(source)?.[1];
+      const normalized = normalizeText(value ?? "");
+      if (normalized.length > 0 && !FORM_INTENT_RE.test(normalized)) {
+        return normalized;
+      }
+    }
+  }
+  if (isNameLikeField(field)) {
+    return extractQuotedTaskValue(source);
+  }
+  return undefined;
+};
+*/
+
+const extractUserProvidedValue = (
+  userIntent: string | undefined,
+  field: FormFieldRecord,
+): string | undefined => {
+  const source = normalizeText(userIntent ?? "");
+  if (source.length === 0) {
+    return undefined;
+  }
+  for (const alias of buildFieldAliases(field)) {
+    const cleanedAlias = normalizeText(alias).replace(FORM_VALUE_PREFIX_RE, "");
+    if (cleanedAlias.length < 2) {
+      continue;
+    }
+    const escaped = escapeRegExp(cleanedAlias);
+    const patterns = [
+      new RegExp(
+        `${escaped}\\s*(?:[:\\uFF1A=]|\\u4e3a|\\u662f|\\u586b\\u4e3a|\\u586b\\u5199\\u4e3a|\\u586b\\u5199|\\u8f93\\u5165|\\u8bbe\\u4e3a|\\u8bbe\\u7f6e\\u4e3a|\\u6539\\u4e3a|\\u4fee\\u6539\\u4e3a)\\s*[\\u201c\\u201d\"']?(.*?)[\\u201c\\u201d\"']?($|[\\uFF0C\\u3002,\\uFF1B;\\n])`,
+        "iu",
+      ),
+      new RegExp(
+        `(?:\\u5c06|\\u628a)\\s*${escaped}\\s*(?:\\u8bbe\\u7f6e|\\u8bbe\\u6210|\\u6539\\u6210|\\u6539\\u4e3a|\\u8bbe\\u4e3a)?\\s*[\\u201c\\u201d\"']?(.*?)[\\u201c\\u201d\"']?($|[\\uFF0C\\u3002,\\uFF1B;\\n])`,
         "iu",
       ),
     ];
@@ -1314,6 +1354,7 @@ export const registerInsightTools = (server: FastMCP): void => {
         layers.some((item) => item.kind === "dialog" || item.kind === "drawer")
           ? "active_layer_dialog_or_drawer"
           : undefined,
+        raw.scope_summary.has_form_container ? "form_container_present" : undefined,
         fields.length >= 2 ? "multiple_form_controls" : undefined,
         validation.missingFields.length > 0 ? "validation_missing_fields" : undefined,
       ].filter((item): item is string => Boolean(item));

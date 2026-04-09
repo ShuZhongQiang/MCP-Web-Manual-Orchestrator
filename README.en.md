@@ -33,6 +33,8 @@ If your goal is "let AI operate a web app and also produce a training guide / SO
   - The default path prefers `find_element`; `inspect_summary` and `inspect_detail` are used only when needed.
 - Form validation self-healing
   - Required fields can be checked before submit, and submit failures can trigger automatic field completion and retry.
+- Form-mode gateway
+  - Add/edit/save flows inspect the active layer and form field summary first, then compile a structured pending queue before any field action runs.
 - Full audit fields
   - Step records include `status`, `errorCode`, `retryCount`, `latencyMs`, `pageUrlBefore`, and `pageUrlAfter`.
 - Direct HTML manual generation
@@ -57,7 +59,7 @@ Agent / Skill Orchestration
 FastMCP Server
    |
    +-- navigate / find_element / click / input_text
-   +-- inspect_summary / inspect_detail / inspect_validation
+   +-- inspect_summary / inspect_detail / inspect_active_layer / inspect_form / compile_form_plan / inspect_validation
    +-- highlight_and_capture / generate_manual / close_session
    |
    v
@@ -82,6 +84,9 @@ The MCP tools currently exported by the codebase are:
 | `highlight_and_capture` | Highlights the target element and captures a screenshot, with pre-click fallback support |
 | `inspect_summary` | Returns a lightweight summary of interactive elements on the page |
 | `inspect_detail` | Returns detailed snapshots for specific `element_id` values |
+| `inspect_active_layer` | Detects the current foreground layer such as a dialog, drawer, dropdown, or popover |
+| `inspect_form` | Detects current form fields, control types, required hints, and reusable `element_id` values |
+| `compile_form_plan` | Compiles field summaries, validation hints, and user intent into a structured pending queue |
 | `inspect_validation` | Detects validation errors and missing required fields |
 | `list_elements` | Lists recently cached elements for the current run |
 | `get_run_context` | Returns recorded step context for the current run |
@@ -258,6 +263,18 @@ Main scripts:
   "typecheck": "tsc --noEmit -p tsconfig.json"
 }
 ```
+
+## Form-Mode Orchestration
+
+If you use this project as the browser-automation foundation for an agent, keep the form gateway explicit:
+
+1. Parse the user request into structured steps first.
+2. When the task contains add/create/edit/fill/save/submit/confirm intent, detect form mode before executing any field.
+3. Call `inspect_active_layer(run_id)` first, then `inspect_form(run_id, ...)`.
+4. Immediately call `compile_form_plan(run_id, user_intent, ...)` so execution is driven from `pending_queue`, not from the raw user prose.
+5. Reuse `inspect_validation(run_id, max_issues?)` as the required-field precheck and merge its result into the compiled plan.
+6. Prefer `issues[].element_id` from validation or field `element_id` values from `inspect_form` / `compile_form_plan`.
+7. Keep all required fields in the pending queue even when the user's request is vague.
 
 If you extend the toolset, keep these design principles intact:
 

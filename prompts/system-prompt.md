@@ -299,13 +299,16 @@ YYYYMMDD_HHMMSSfff
 
 1. 先把用户描述解析为结构化任务步骤。
 2. 识别是否进入表单场景：弹窗、抽屉、编辑页、详情表单页，或页面上出现多个输入控件。
-3. 若进入表单场景，在首次填写字段或首次提交前，优先调用 `inspect_validation(run_id, max_issues?)` 做必填项预检。
-4. 基于预检结果形成字段执行计划：字段名、控件类型、是否必填、值来源、执行动作。
-5. 若 `inspect_validation` 已给出 `issues[].element_id`，优先直接操作该元素；仅在字段语义不清、候选冲突高、控件类型不明确时，才调用 `inspect_summary` / `inspect_detail`。
-6. 根据控件类型执行：
+3. 一旦命中表单场景，固定先调用 `inspect_active_layer(run_id)`，再调用 `inspect_form(run_id, max_fields?, include_optional?, compact?)`。
+4. 拿到 `inspect_form` 结果后，必须调用 `compile_form_plan(run_id, user_intent, ...)`，把字段摘要编译成结构化“表单执行计划”。
+5. 表单执行计划至少包含：字段名、控件类型、是否必填、`element_id`、当前值、值来源、预期动作、待处理优先级。
+6. 后续表单执行不得再直接从用户原始描述逐句驱动，只能从 `compile_form_plan` 返回的 `pending_queue` 驱动。
+7. 若进入表单场景，在首次填写字段或首次提交前，优先调用 `inspect_validation(run_id, max_issues?)` 做必填项预检；若 `compile_form_plan` 已汇总缺失字段，优先复用该队列。
+8. 若 `inspect_validation` 已给出 `issues[].element_id`，或 `compile_form_plan` / `inspect_form` 已给出字段 `element_id`，优先直接操作这些元素；仅在字段语义不清、候选冲突高、控件类型不明确时，才调用 `inspect_summary` / `inspect_detail`。
+9. 根据控件类型执行：
    - 文本框 / 文本域 / 数字框：`input_text`
    - 下拉框 / 组合框：先 `click` 打开，再定位目标选项 `click`
    - 单选 / 复选 / 开关：`click`
    - 日期时间：优先直接输入；不可输入时再打开控件选择
-7. 当用户只模糊地说“完善表单”“新增一个商品”时，必须主动补齐全部必填项，不得只填写少数字段后直接提交。
-8. 所有补齐动作都必须截图，并写入最终手册步骤说明或审计说明。
+10. 当用户只模糊地说“完善表单”“新增一个商品”时，必须主动补齐全部必填项；至少所有必填项都要进入 `pending_queue`，不得只填写少数字段后直接提交。
+11. 所有补齐动作都必须截图，并写入最终手册步骤说明或审计说明。

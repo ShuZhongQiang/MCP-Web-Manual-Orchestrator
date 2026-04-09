@@ -123,11 +123,20 @@ YYYYMMDD_HHMMSSfff
 
 一旦判定为表单场景，必须先做“表单执行计划”，禁止直接按自然语言逐句盲点盲填。
 
+固定网关顺序：
+
+1. `inspect_active_layer(run_id)`
+2. `inspect_form(run_id, ...)`
+3. `compile_form_plan(run_id, user_intent, ...)`
+4. 后续字段执行只允许从 `compile_form_plan` 返回的 `pending_queue` 驱动，禁止回退为逐句盲填
+
 表单执行计划至少包含：
 
 - 字段名称
 - 控件类型：`input` / `textarea` / `select` / `combobox` / `radio` / `checkbox` / `date`
 - 是否必填
+- `element_id`
+- 当前值
 - 值来源：用户明确提供 / 默认值自愈 / 页面校验返回
 - 执行动作：`input_text` / `click -> 选项 click`
 
@@ -173,9 +182,10 @@ YYYYMMDD_HHMMSSfff
 
 #### ①.3 表单感知执行策略（必须）
 
-- 一旦进入新增/编辑/提交类页面或弹窗，优先先执行 `inspect_active_layer(run_id)` 判断当前前景层，再执行 `inspect_form(run_id)` 获取表单字段计划。
+- 一旦进入新增/编辑/提交类页面或弹窗，优先先执行 `inspect_active_layer(run_id)` 判断当前前景层，再执行 `inspect_form(run_id)` 获取表单字段摘要。
+- 拿到字段摘要后，必须继续调用 `compile_form_plan(run_id, user_intent, ...)` 编译结构化“表单执行计划”，并从 `pending_queue` 驱动后续执行。
 - 在首次提交前，仍需执行一次 `inspect_validation(run_id, max_issues?)` 做必填项预检。
-- `inspect_form` 的目标是返回“字段名 + 控件类型 + 是否必填 + element_id + 当前值摘要”，Agent 应优先据此生成表单执行计划。
+- `inspect_form` 的目标是返回“字段名 + 控件类型 + 是否必填 + element_id + 当前值摘要”，`compile_form_plan` 负责把这些原始字段编译成“字段队列 + 值来源 + 预期动作 + 待处理优先级”。
 - 若 `inspect_validation` 已能返回 `missing_fields` 与 `issues[].element_id`，优先直接据此补齐，不要重复大范围探测。
 - 若必填字段名称不清晰、控件类型不明确、或一个字段对应多个候选元素，固定回退顺序为：
   - `inspect_form`
@@ -252,6 +262,7 @@ YYYYMMDD_HHMMSSfff
 - `generate_manual(run_id, steps_json, clear_after_generate?)`
 - `inspect_active_layer(run_id, max_layers?, compact?)`
 - `inspect_form(run_id, max_fields?, include_optional?, compact?)`
+- `compile_form_plan(run_id, user_intent?, max_fields?, include_optional?, max_issues?, compact?)`
 - `inspect_summary(run_id, ...)`
 - `inspect_detail(run_id, element_ids, compact?)`
 - `inspect_validation(run_id, max_issues?)`
