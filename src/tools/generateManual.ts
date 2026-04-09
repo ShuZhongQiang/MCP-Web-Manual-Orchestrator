@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { FastMCP } from "fastmcp";
 
 import { elementStore } from "../core/elementStore.js";
+import { logicalStepStore } from "../core/logicalStepStore.js";
 import { preActionCaptureStore } from "../core/preActionCaptureStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
 import type { ManualDocument, ManualModule, StepRecord } from "../types.js";
@@ -21,6 +22,10 @@ type ParsedManualPayload = {
   summary?: string;
   modules?: ManualModule[];
   steps: StepRecord[];
+  stepAudit?: {
+    autoAddedSteps: number[];
+    blockedSteps: number[];
+  };
 };
 
 const normalize = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -151,10 +156,7 @@ const manualObjectSchema = z
     step_list: z.array(stepSchema).optional(),
   })
   .transform((item): ParsedManualPayload => {
-    const steps = item.steps ?? item.stepList ?? item.step_list;
-    if (!steps || steps.length === 0) {
-      throw new Error("Manual payload is missing non-empty 'steps'");
-    }
+    const steps = item.steps ?? item.stepList ?? item.step_list ?? [];
     return {
       title:
         item.title ??
@@ -274,12 +276,52 @@ const mergeInputWithRecorded = (inputStep: StepRecord, recorded?: StepRecord): S
   };
 };
 
-const buildMissingStepsError = (steps: number[]): Error => {
+const mergeRecordedWithInput = (recorded: StepRecord, inputStep?: StepRecord): StepRecord => {
+  if (!inputStep) {
+    return recorded;
+  }
+  return {
+    ...recorded,
+    notes: mergeStringArray(recorded.notes, inputStep.notes),
+    evidence: mergeEvidence(recorded.evidence, inputStep.evidence),
+    missingFields: mergeStringArray(recorded.missingFields, inputStep.missingFields),
+    filledFields: mergeStringArray(recorded.filledFields, inputStep.filledFields),
+    module: inputStep.module ?? recorded.module,
+    moduleDescription: inputStep.moduleDescription ?? recorded.moduleDescription,
+  };
+};
+
+const buildExtraInputStepsError = (steps: number[]): Error => {
   const sorted = [...new Set(steps)].sort((a, b) => a - b);
   return new Error(
-    `STEP_MAPPING_MISSING Execution records were written to unmapped logical steps: ${sorted.join(", ")}. ` +
-      "Re-run the flow and pass the same explicit step number to navigate/click/input_text/highlight_and_capture for each logical manual step.",
+    `STEP_RECONCILE_BLOCKED steps_json contains logical steps without execution records: ${sorted.join(", ")}. ` +
+      "Remove those steps from steps_json or re-run the execution so runtime records exist before generating the manual.",
   );
+};
+
+const reconcileManualSteps = ({
+  inputSteps,
+  persistedSteps,
+}: {
+  inputSteps: StepRecord[];
+  persistedSteps: StepRecord[];
+}): { steps: StepRecord[]; autoAddedSteps: number[]; blockedSteps: number[] } => {
+  const persistedByStep = new Map(persistedSteps.map((item) => [item.step, item]));
+  const inputByStep = new Map(inputSteps.map((item) => [item.step, item]));
+  const blockedSteps = inputSteps.filter((item) => !persistedByStep.has(item.step)).map((item) => item.step);
+  if (blockedSteps.length > 0) {
+    throw buildExtraInputStepsError(blockedSteps);
+  }
+
+  const autoAddedSteps = persistedSteps
+    .filter((item) => !inputByStep.has(item.step))
+    .map((item) => item.step);
+
+  return {
+    steps: persistedSteps.map((item) => mergeRecordedWithInput(item, inputByStep.get(item.step))),
+    autoAddedSteps,
+    blockedSteps: [],
+  };
 };
 
 const ensureSentence = (value: string): string => {
@@ -592,25 +634,18 @@ export const registerGenerateManualTool = (server: FastMCP): void => {
       const htmlPath = path.join(runDir, "manual.html");
 
       const parsedInput = parseSteps(steps_json);
-      const inputSteps = parsedInput.steps;
       const persisted = coalesceSteps(stepRecorder.get(run_id));
-      if (inputSteps.length === 0) {
+      if (persisted.length === 0) {
         throw new Error(
-          "STEPS_JSON_REQUIRED generate_manual requires non-empty steps_json so the final manual follows the user's logical step order instead of raw execution logs.",
+          "EXECUTION_RECORDS_REQUIRED generate_manual requires recorded execution steps. Run the flow first, then generate the manual from runtime execution records.",
         );
       }
 
-      const inputStepNumbers = new Set(inputSteps.map((item) => item.step));
-      const unmappedSteps = persisted
-        .filter((item) => !inputStepNumbers.has(item.step))
-        .map((item) => item.step);
-      if (unmappedSteps.length > 0) {
-        throw buildMissingStepsError(unmappedSteps);
-      }
-
-      const persistedByStep = new Map(persisted.map((item) => [item.step, item]));
-      const merged = inputSteps.map((item) => mergeInputWithRecorded(item, persistedByStep.get(item.step)));
-      const sorted = [...merged].sort((a, b) => a.step - b.step);
+      const reconciled = reconcileManualSteps({
+        inputSteps: parsedInput.steps,
+        persistedSteps: persisted,
+      });
+      const sorted = [...reconciled.steps].sort((a, b) => a.step - b.step);
 
       const normalized = sorted.map((item) => ({
         ...item,
@@ -622,13 +657,24 @@ export const registerGenerateManualTool = (server: FastMCP): void => {
         captureOnly: undefined,
       }));
 
-      const document = buildManualDocument(parsedInput, normalized);
+      const document = buildManualDocument(
+        {
+          ...parsedInput,
+          steps: sorted,
+          stepAudit: {
+            autoAddedSteps: reconciled.autoAddedSteps,
+            blockedSteps: reconciled.blockedSteps,
+          },
+        },
+        normalized,
+      );
       const now = new Date();
       const generatedAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
       const html = buildManualHtml(run_id, generatedAt, document);
       writeFileSync(htmlPath, html, "utf-8");
       if (clear_after_generate) {
         stepRecorder.clear(run_id);
+        logicalStepStore.clearRun(run_id);
         elementStore.clearRun(run_id);
         preActionCaptureStore.clearRun(run_id);
       }

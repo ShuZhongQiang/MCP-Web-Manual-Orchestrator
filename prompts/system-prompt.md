@@ -225,8 +225,10 @@ YYYYMMDD_HHMMSSfff
 
 ### Step 4：生成 HTML 手册
 
-- 调度 `generate_manual` 时必须传入非空 `steps_json`，禁止传空数组或依赖运行期原始执行日志自动生成。
-- `steps_json` 中的 `step` 必须与前面执行 `navigate/click/input_text/highlight_and_capture` 时传入的 `step` 完全一致。
+- 每个逻辑步骤开始前，优先调用 `begin_step(run_id, desc?, module?, module_description?)`，由 runtime 分配 `step_id` 并设为当前 active step。
+- 同一步内的 `find_element / find_candidates / navigate / click / input_text / highlight_and_capture / generate_manual` 都必须复用当前 active step；除非是兼容老流程，不要自行编造数字 step。
+- 调度 `generate_manual` 时，优先依赖 runtime execution records 生成手册；`steps_json` 可以为空，若传入则只作为标题 / 摘要 / 模块 / 步骤补充信息来源。
+- `generate_manual` 前必须做 step 对账：若 `steps_json` 少了执行步骤，允许系统自动补齐；若 `steps_json` 多出没有 execution records 的步骤，必须阻断并报错。
 
 ---
 
@@ -253,13 +255,14 @@ YYYYMMDD_HHMMSSfff
 ---
 
 ### 由 Skill 层提供的能力（Agent 仅调用）
-- `navigate(run_id, url, step?)`
+- `begin_step(run_id, desc?, module?, module_description?)`
+- `navigate(run_id, url, text?, step?)`
 - `find_element(run_id, target, return_candidates?, max_candidates?, retry_count?)`
 - `find_candidates(run_id, target, max_candidates?, retry_count?)`
 - `click(element_id, run_id, text?, step?, retry_count?)`
 - `input_text(element_id, value, run_id, text?, step?, retry_count?)`
-- `highlight_and_capture(element, step, action, text)`
-- `generate_manual(run_id, steps_json, clear_after_generate?)`
+- `highlight_and_capture(element, step?, action, text?)`
+- `generate_manual(run_id, steps_json?, clear_after_generate?)`
 - `inspect_active_layer(run_id, max_layers?, compact?)`
 - `inspect_form(run_id, max_fields?, include_optional?, compact?)`
 - `compile_form_plan(run_id, user_intent?, max_fields?, include_optional?, max_issues?, compact?)`

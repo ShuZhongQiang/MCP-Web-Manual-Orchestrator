@@ -6,6 +6,7 @@ import { elementStore } from "./core/elementStore.js";
 import { preActionCaptureStore } from "./core/preActionCaptureStore.js";
 import { selfHealStore } from "./core/selfHealStore.js";
 import { stepRecorder } from "./core/stepRecorder.js";
+import { logicalStepStore } from "./core/logicalStepStore.js";
 import { registerClickTool } from "./tools/click.js";
 import { registerFindTool } from "./tools/find.js";
 import { registerGenerateManualTool } from "./tools/generateManual.js";
@@ -13,6 +14,7 @@ import { registerInsightTools } from "./tools/insight.js";
 import { registerInputTool } from "./tools/input.js";
 import { registerNavigateTool } from "./tools/navigate.js";
 import { registerScreenshotTool } from "./tools/screenshot.js";
+import { registerStepTool } from "./tools/step.js";
 
 const main = async () => {
   const server = new FastMCP({
@@ -21,6 +23,7 @@ const main = async () => {
   });
 
   registerNavigateTool(server);
+  registerStepTool(server);
   registerFindTool(server);
   registerClickTool(server);
   registerInputTool(server);
@@ -40,6 +43,7 @@ const main = async () => {
       preActionCaptureStore.clearRun(run_id);
       selfHealStore.clearRun(run_id);
       stepRecorder.clear(run_id);
+      logicalStepStore.clearRun(run_id);
       return `Session ${run_id} closed successfully`;
     },
   });

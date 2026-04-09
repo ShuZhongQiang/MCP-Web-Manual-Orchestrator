@@ -3,8 +3,13 @@ import type { FastMCP } from "fastmcp";
 import type { Locator, Page } from "playwright";
 import { browserManager } from "../core/browser.js";
 import { elementStore } from "../core/elementStore.js";
+import { logicalStepStore } from "../core/logicalStepStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
 import type { ElementSnapshot } from "../types.js";
+import {
+  pickConfiguredOptionValue,
+  resolveConfiguredDefaultFieldValue,
+} from "../utils/defaultFieldPolicy.js";
 import { inspectValidation, type ValidationReport } from "../utils/validation.js";
 
 const INTERACTIVE_SELECTOR = "a, button, input, select, textarea, [role='button'], [onclick]";
@@ -144,44 +149,13 @@ const normalizeFieldKey = (value: string): string => {
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const currentLocalDate = (): string => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const generateDefaultFieldValue = (field: string): string => {
-  const normalized = field.toLowerCase();
-  if (/手机|phone|mobile/.test(normalized)) {
-    return "13800138000";
-  }
-  if (/邮箱|email|mail/.test(normalized)) {
-    return "test@example.com";
-  }
-  if (/邮编|zip|postal/.test(normalized)) {
-    return "100000";
-  }
-  if (/日期|date|time/.test(normalized)) {
-    return currentLocalDate();
-  }
-  if (/价格|price|amount|单价|fee|cost/.test(normalized)) {
-    return "9.9";
-  }
-  if (/库存|stock|quantity|number|count|qty|inventory/.test(normalized)) {
-    return "100";
-  }
-  if (/分类|category|type|kind|group/.test(normalized)) {
-    return "咖啡";
-  }
-  if (/名称|name|title|product/.test(normalized)) {
-    return "测试项目";
-  }
-  if (/描述|description|desc|remark|note|summary/.test(normalized)) {
-    return "测试描述";
-  }
-  return "测试值";
+const resolveDefaultPlannedValue = (field: FormFieldRecord): string => {
+  return (
+    (["select", "combobox"].includes(field.control_type)
+      ? pickConfiguredOptionValue(field.option_preview.map((item) => normalizeText(item)))
+      : undefined) ??
+    resolveConfiguredDefaultFieldValue(field.label || field.placeholder || field.name_attr || "\u5b57\u6bb5")
+  );
 };
 
 const buildFieldAliases = (field: FormFieldRecord): string[] => {
@@ -369,13 +343,13 @@ const compileFormPlanFields = ({
       status = "pending";
       queueReason = "validation_missing";
       valueSource = "default_heal";
-      plannedValue = generateDefaultFieldValue(field.label || field.placeholder || field.name_attr || "字段");
+      plannedValue = resolveDefaultPlannedValue(field);
       priority = 3;
     } else if (field.required && field.empty) {
       status = "pending";
       queueReason = "required_empty";
       valueSource = "default_heal";
-      plannedValue = generateDefaultFieldValue(field.label || field.placeholder || field.name_attr || "字段");
+      plannedValue = resolveDefaultPlannedValue(field);
       priority = 4;
     }
 
@@ -1507,10 +1481,19 @@ export const registerInsightTools = (server: FastMCP): void => {
     }),
     execute: async ({ run_id, limit }: { run_id: string; limit: number }) => {
       const steps = stepRecorder.get(run_id).slice(0, limit);
+      const activeStep = logicalStepStore.getActive(run_id);
       return JSON.stringify({
         run_id,
         step_count: steps.length,
-        next_step: stepRecorder.getNextStep(run_id),
+        next_step: logicalStepStore.getNextStep(run_id),
+        active_step: activeStep
+          ? {
+              step_id: activeStep.step,
+              desc: activeStep.desc,
+              module: activeStep.module,
+              module_description: activeStep.moduleDescription,
+            }
+          : null,
         steps,
       });
     },

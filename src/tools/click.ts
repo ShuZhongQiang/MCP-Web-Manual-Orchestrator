@@ -5,10 +5,15 @@ import type { Locator, Page } from "playwright";
 import { browserManager } from "../core/browser.js";
 import { SCREENSHOT_RENDER_WAIT_MS } from "../config.js";
 import { elementStore } from "../core/elementStore.js";
+import { logicalStepStore } from "../core/logicalStepStore.js";
 import { preActionCaptureStore } from "../core/preActionCaptureStore.js";
 import { selfHealStore } from "../core/selfHealStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
 import type { ElementSnapshot, StepRecord } from "../types.js";
+import {
+  pickConfiguredOptionValue,
+  resolveConfiguredDefaultFieldValue,
+} from "../utils/defaultFieldPolicy.js";
 import { getRunDir } from "../utils/file.js";
 import { clearHighlight, renderHighlight } from "../utils/highlight.js";
 import { buildValidationErrorMessage, inspectValidation, resolveIssueLocator, type ValidationReport } from "../utils/validation.js";
@@ -39,38 +44,6 @@ const currentLocalDate = (): string => {
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-};
-
-const generateDefaultValue = (field: string): string => {
-  const normalized = field.toLowerCase();
-  if (/\u624b\u673a|phone|mobile/.test(normalized)) {
-    return "13800138000";
-  }
-  if (/\u90ae\u7bb1|email|mail/.test(normalized)) {
-    return "test@example.com";
-  }
-  if (/\u90ae\u7f16|zip|postal/.test(normalized)) {
-    return "100000";
-  }
-  if (/\u65e5\u671f|date|time/.test(normalized)) {
-    return currentLocalDate();
-  }
-  if (/\u4ef7\u683c|price|amount|\u5355\u4ef7|fee|cost/.test(normalized)) {
-    return "9.9";
-  }
-  if (/\u5e93\u5b58|stock|quantity|number|count|qty|inventory/.test(normalized)) {
-    return "100";
-  }
-  if (/\u5206\u7c7b|category|type|kind|group/.test(normalized)) {
-    return "\u5496\u5561";
-  }
-  if (/\u540d\u79f0|name|title|product/.test(normalized)) {
-    return "\u6d4b\u8bd5\u9879\u76ee";
-  }
-  if (/\u63cf\u8ff0|description|desc|remark|note|summary/.test(normalized)) {
-    return "\u6d4b\u8bd5\u63cf\u8ff0";
-  }
-  return "\u6d4b\u8bd5\u503c";
 };
 
 const isLikelySubmitClick = (desc: string, snapshot?: ElementSnapshot): boolean => {
@@ -132,7 +105,11 @@ const resolveRecordedStep = ({
   explicitStep?: number;
 }): number => {
   if (typeof explicitStep === "number") {
-    return explicitStep;
+    return logicalStepStore.resolve(runId, explicitStep);
+  }
+  const active = logicalStepStore.getActive(runId);
+  if (active) {
+    return active.step;
   }
   const normalizedAction = normalize(action);
   const normalizedDesc = normalize(desc);
@@ -146,7 +123,7 @@ const resolveRecordedStep = ({
   if (pending) {
     return pending.step;
   }
-  return stepRecorder.getNextStep(runId);
+  return logicalStepStore.resolve(runId);
 };
 
 const buildSelfHealKey = (desc: string, elementId: string, snapshot?: ElementSnapshot): string => {
@@ -677,6 +654,13 @@ const chooseSelectOption = (options: SelectOptionMeta[], preferredText: string):
       return matched;
     }
   }
+  const configuredFallback = pickConfiguredOptionValue(active.map((item) => item.label));
+  if (configuredFallback) {
+    const fallbackMatch = active.find((item) => normalize(item.label) === normalize(configuredFallback));
+    if (fallbackMatch) {
+      return fallbackMatch;
+    }
+  }
   return active.find((item) => normalize(item.value).length > 0 || normalize(item.label).length > 0);
 };
 
@@ -687,7 +671,31 @@ const selectComboboxOption = async (page: Page, preferredText: string): Promise<
   }
   const optionQueries: Locator[] = [];
   const normalizedPreferred = normalize(preferredText);
-  
+  const visibleOptionTexts = await popup
+    .locator(COMBOBOX_OPTION_SELECTOR)
+    .evaluateAll((nodes) =>
+      nodes
+        .map((node) => {
+          const element = node as HTMLElement;
+          const style = window.getComputedStyle(element);
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            Number(style.opacity || "1") === 0
+          ) {
+            return "";
+          }
+          const rect = element.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) {
+            return "";
+          }
+          return (element.textContent ?? "").trim().replace(/\s+/g, " ");
+        })
+        .filter((item) => item.length > 0),
+    )
+    .catch(() => []);
+  const configuredFallbackText = pickConfiguredOptionValue(visibleOptionTexts);
+
   if (normalizedPreferred.length > 0) {
     optionQueries.push(popup.getByRole("option", { name: preferredText, exact: false }));
     optionQueries.push(
@@ -697,21 +705,30 @@ const selectComboboxOption = async (page: Page, preferredText: string): Promise<
     );
     optionQueries.push(
       popup.locator(".el-select-dropdown__item").filter({
-        hasText: preferredText
-      })
+        hasText: preferredText,
+      }),
     );
     optionQueries.push(
       popup.locator(".ant-select-dropdown-menu-item").filter({
-        hasText: preferredText
-      })
+        hasText: preferredText,
+      }),
     );
   }
-  if (normalizedPreferred.length === 0) {
-    optionQueries.push(popup.locator(".ant-select-item-option:not(.ant-select-item-option-disabled) .ant-select-item-option-content"));
-    optionQueries.push(popup.locator(".el-select-dropdown__item:not(.is-disabled)"));
-    optionQueries.push(popup.locator(".ant-select-dropdown-menu-item:not(.ant-select-dropdown-menu-item-disabled)"));
-    optionQueries.push(popup.locator("[role='option']"));
+  if (configuredFallbackText && normalize(configuredFallbackText) !== normalizedPreferred) {
+    optionQueries.push(popup.getByRole("option", { name: configuredFallbackText, exact: false }));
+    optionQueries.push(
+      popup
+        .locator(".ant-select-item-option-content, .el-select-dropdown__item, [role='option']")
+        .filter({ hasText: configuredFallbackText }),
+    );
   }
+
+  optionQueries.push(
+    popup.locator(".ant-select-item-option:not(.ant-select-item-option-disabled) .ant-select-item-option-content"),
+  );
+  optionQueries.push(popup.locator(".el-select-dropdown__item:not(.is-disabled)"));
+  optionQueries.push(popup.locator(".ant-select-dropdown-menu-item:not(.ant-select-dropdown-menu-item-disabled)"));
+  optionQueries.push(popup.locator("[role='option']"));
 
   for (const query of optionQueries) {
     if (await clickVisibleOption(query, 12)) {
@@ -722,7 +739,7 @@ const selectComboboxOption = async (page: Page, preferredText: string): Promise<
 };
 
 const controlAwareValue = (fieldName: string, meta?: ControlMeta): string => {
-  const fallback = generateDefaultValue(fieldName);
+  const fallback = resolveConfiguredDefaultFieldValue(fieldName);
   if (!meta) {
     return fallback;
   }
@@ -1063,7 +1080,8 @@ export const registerClickTool = (server: FastMCP): void => {
       retry_count: number;
     }) => {
       const page = await browserManager.getPage(run_id);
-      const desc = text ?? "点击元素";
+      const activeStep = logicalStepStore.getActive(run_id);
+      const desc = text ?? activeStep?.desc ?? "点击元素";
       const stepNumber = resolveRecordedStep({
         runId: run_id,
         action: "click",

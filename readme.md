@@ -90,7 +90,8 @@ manualsByAi/run_<runId>/
 | `inspect_validation` | 识别页面校验错误和缺失必填项 |
 | `list_elements` | 查看当前 run 最近缓存的元素摘要 |
 | `get_run_context` | 查看当前 run 的步骤上下文 |
-| `generate_manual` | 根据 `steps_json` 生成最终 HTML 手册 |
+| `begin_step` | 由 runtime 分配并激活当前逻辑步骤 step_id |
+| `generate_manual` | 以 execution records 为主生成最终 HTML 手册，`steps_json` 仅作补充信息 |
 | `close_session` | 关闭当前 run 的浏览器会话并清理内存 |
 
 ## 目录结构
@@ -175,14 +176,63 @@ MANUALS_DIR=D:\custom-manuals
 
 如果传入相对路径，会基于项目根目录解析。
 
+## 默认字段值策略配置
+
+表单自动补值的默认策略已经统一收口到 [src/utils/defaultFieldPolicy.ts](/d:/AI-agent/Node_Fast_Mcp_Web_Manual_Agent/src/utils/defaultFieldPolicy.ts)。这套策略会同时被表单规划阶段和运行时自愈补填复用，后续维护默认值时不需要再分别修改多个工具文件。
+
+仓库内提供了一个可直接参考的示例文件：[examples/default-field-policy.example.json](/d:/AI-agent/Node_Fast_Mcp_Web_Manual_Agent/examples/default-field-policy.example.json)。
+
+通过外部 JSON 文件加载策略：
+
+```bash
+FIELD_DEFAULT_VALUE_POLICY_FILE=examples/default-field-policy.example.json
+```
+
+也可以直接通过环境变量传入 JSON：
+
+```bash
+FIELD_DEFAULT_VALUE_POLICY_JSON={"rules":[{"id":"brand","pattern":"品牌|brand","value":"示例品牌","priority":120}]}
+```
+
+Windows PowerShell 示例：
+
+```powershell
+$env:FIELD_DEFAULT_VALUE_POLICY_FILE="examples/default-field-policy.example.json"
+npm run dev
+```
+
+策略 JSON 结构如下：
+
+```json
+{
+  "option_placeholder_patterns": ["^请选择$"],
+  "rules": [
+    {
+      "id": "category_override",
+      "pattern": "分类|category|type|kind|group",
+      "value": "饮品",
+      "priority": 120
+    }
+  ]
+}
+```
+
+字段说明：
+
+- `option_placeholder_patterns`：扩展下拉框占位项识别规则，帮助系统跳过“请选择”这类无效选项。
+- `rules`：按正则匹配字段名、标签、placeholder 或 `name` 等信息。
+- `value`：固定默认值；`generator`：调用内置动态生成器，目前内置 `current_date`。
+- `priority`：优先级越高越先命中；若优先级相同，后加载的规则优先生效，因此外部配置可以覆盖内置规则。
+
 ## 编排约束
 
 如果你要在 Agent 或 Skill 层接入本项目，以下约束很重要：
 
 - 所有网页操作都应通过 MCP 工具完成，不要额外生成 Playwright / JS 脚本。
 - 对同一个逻辑步骤，`navigate` / `click` / `input_text` / `highlight_and_capture` 应传入相同的 `step`。
-- `generate_manual` 必须接收非空 `steps_json`，不要依赖原始执行日志自动拼装最终文档。
-- `steps_json[*].step` 必须与前面执行动作时使用的 `step` 完全一致。
+- 每个逻辑步骤开始前优先调用 `begin_step`，由 runtime 分配并锁定当前逻辑 `step_id`。
+- `generate_manual` 优先使用 execution records；`steps_json` 可以为空，若传入则只作为标题/摘要/模块/步骤补充信息。
+- 若 `steps_json` 缺少已执行步骤，系统会在生成前自动补齐；若 `steps_json` 多出没有 execution records 的步骤，系统会阻断生成。
 - 对可能触发跳转、弹窗、DOM 刷新的点击，优先先截图再点击。
 
 这几条直接决定最后 `manual.html` 是否能稳定生成、是否能与执行步骤正确对齐。
@@ -270,7 +320,7 @@ MANUALS_DIR=D:\custom-manuals
 - 审计字段要完整
 - 高风险点击优先考虑截图回退
 - 尽量避免大体量页面结构返回
-- 手册生成依赖显式 `steps_json`，不要改回隐式日志拼装
+- 手册生成以 execution records 为主，`steps_json` 只作为可选补充，不再把模型临时拼装结果当作唯一事实来源
 
 ## 许可证
 

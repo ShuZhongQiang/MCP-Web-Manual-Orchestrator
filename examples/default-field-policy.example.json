@@ -1,0 +1,33 @@
+{
+  "option_placeholder_patterns": [
+    "^请选择$",
+    "^请选择一个门店$",
+    "^please choose$"
+  ],
+  "rules": [
+    {
+      "id": "category_override",
+      "pattern": "分类|category|type|kind|group",
+      "value": "饮品",
+      "priority": 120
+    },
+    {
+      "id": "brand",
+      "pattern": "品牌|brand",
+      "value": "示例品牌",
+      "priority": 110
+    },
+    {
+      "id": "contact_name",
+      "pattern": "联系人|contact",
+      "value": "张三",
+      "priority": 110
+    },
+    {
+      "id": "visit_date",
+      "pattern": "到访日期|预约日期|visit date|booking date",
+      "generator": "current_date",
+      "priority": 110
+    }
+  ]
+}

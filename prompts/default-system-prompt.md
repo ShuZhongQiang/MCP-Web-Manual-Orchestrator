@@ -24,6 +24,7 @@
 
 如果 web-manual-generator Skill 不可用，请直接使用以下 MCP 工具：
 
+0. **begin_step** - 由 runtime 分配并激活当前逻辑步骤 step_id
 1. **navigate** - 打开指定网页 URL
 2. **find_element** - 定位页面元素
 3. **click** - 点击元素
@@ -47,7 +48,7 @@
 1. 首先调用 web-manual-generator Skill（如果可用）
 2. 如果 Skill 不可用，直接使用上述 MCP 工具按顺序执行
 3. 每一步操作后使用 highlight_and_capture 进行截图
-4. 最后生成 HTML 手册时，必须传非空 `steps_json`，并保证执行阶段所有动作都复用对应的逻辑 `step`
+4. 每个逻辑步骤先调用 `begin_step` 让 runtime 分配 step_id；生成 HTML 手册时优先依赖 execution records，`steps_json` 可以为空，若传入则只作为补充信息并先做 step 对账
 5. 如有明确的业务名称或模块语义，优先传 `{ "title", "summary", "modules", "steps" }`，不要只传 bare steps array
 6. 关闭会话
 

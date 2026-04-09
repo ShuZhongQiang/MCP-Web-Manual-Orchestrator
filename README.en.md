@@ -90,7 +90,8 @@ The MCP tools currently exported by the codebase are:
 | `inspect_validation` | Detects validation errors and missing required fields |
 | `list_elements` | Lists recently cached elements for the current run |
 | `get_run_context` | Returns recorded step context for the current run |
-| `generate_manual` | Generates the final HTML manual from `steps_json` |
+| `begin_step` | Allocates and activates a runtime-managed logical `step_id` |
+| `generate_manual` | Generates the final HTML manual primarily from execution records, with optional `steps_json` overlays |
 | `close_session` | Closes the current run's browser session and clears memory |
 
 ## Project Structure
@@ -175,14 +176,63 @@ MANUALS_DIR=D:\custom-manuals
 
 If you pass a relative path, it is resolved from the project root.
 
+## Default Field Value Policy
+
+Default fallback values for form auto-fill are centralized in [src/utils/defaultFieldPolicy.ts](/d:/AI-agent/Node_Fast_Mcp_Web_Manual_Agent/src/utils/defaultFieldPolicy.ts). This policy is shared by both form planning and runtime self-healing, so there is only one place to maintain field defaults.
+
+An example override file is provided at [examples/default-field-policy.example.json](/d:/AI-agent/Node_Fast_Mcp_Web_Manual_Agent/examples/default-field-policy.example.json).
+
+Load an external policy file:
+
+```bash
+FIELD_DEFAULT_VALUE_POLICY_FILE=examples/default-field-policy.example.json
+```
+
+Or pass inline JSON:
+
+```bash
+FIELD_DEFAULT_VALUE_POLICY_JSON={"rules":[{"id":"brand","pattern":"品牌|brand","value":"示例品牌","priority":120}]}
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:FIELD_DEFAULT_VALUE_POLICY_FILE="examples/default-field-policy.example.json"
+npm run dev
+```
+
+Policy shape:
+
+```json
+{
+  "option_placeholder_patterns": ["^请选择$"],
+  "rules": [
+    {
+      "id": "category_override",
+      "pattern": "分类|category|type|kind|group",
+      "value": "饮品",
+      "priority": 120
+    }
+  ]
+}
+```
+
+Rules:
+
+- `option_placeholder_patterns` extends the built-in placeholder filter used when picking a real option from a dropdown.
+- `rules` are matched by regex against normalized field names such as label, placeholder, or `name`.
+- `value` is a fixed fallback value; `generator` uses a built-in dynamic generator such as `current_date`.
+- Higher `priority` wins. If priorities are equal, later-loaded rules win, so env-provided rules can override built-ins cleanly.
+
 ## Orchestration Rules
 
 If you integrate this project at the agent or skill layer, these rules matter:
 
 - All browser actions should go through MCP tools. Do not generate extra Playwright or JavaScript scripts.
 - For a single logical step, `navigate`, `click`, `input_text`, and `highlight_and_capture` should share the same `step`.
-- `generate_manual` must receive a non-empty `steps_json`; do not rely on raw execution logs to assemble the final manual.
-- `steps_json[*].step` must exactly match the `step` values used during execution.
+- Start each logical step with `begin_step` so runtime allocates and pins the shared `step_id`.
+- `generate_manual` should use execution records as the primary source of truth; `steps_json` may be empty and is treated as optional overlay metadata.
+- If `steps_json` omits executed steps, runtime auto-repairs them before rendering; if `steps_json` contains steps without execution records, generation is blocked.
 - For clicks that may trigger navigation, dialogs, or DOM refresh, capture before clicking when possible.
 
 These constraints directly determine whether `manual.html` can be generated reliably and aligned with the executed workflow.
@@ -282,7 +332,7 @@ If you extend the toolset, keep these design principles intact:
 - Keep audit fields complete
 - Consider screenshot fallback for high-risk clicks
 - Avoid returning large page structures unless necessary
-- Keep manual generation tied to explicit `steps_json`, not implicit log assembly
+- Keep manual generation anchored to runtime execution records, using `steps_json` only as optional overlay metadata
 
 ## License
 

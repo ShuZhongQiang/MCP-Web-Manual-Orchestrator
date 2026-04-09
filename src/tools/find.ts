@@ -723,7 +723,7 @@ export const registerFindTool = (server: FastMCP): void => {
 
   server.addTool({
     name: "find_element",
-    description: "瀹氫綅椤甸潰鍏冪礌",
+    description: "定位页面元素",
     parameters: baseParameters.extend({
       return_candidates: z.boolean().default(false),
     }),
@@ -758,7 +758,7 @@ export const registerFindTool = (server: FastMCP): void => {
 
   server.addTool({
     name: "find_candidates",
-    description: "鍦ㄥ綋鍓嶆湁鏁堝墠鏅眰鍐呰繑鍥炲厓绱犲€欓€夐泦",
+    description: "在当前有效前景层内返回元素候选集",
     parameters: baseParameters,
     execute: async ({
       run_id,

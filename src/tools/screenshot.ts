@@ -5,6 +5,7 @@ import type { FastMCP } from "fastmcp";
 import { browserManager } from "../core/browser.js";
 import { SCREENSHOT_RENDER_WAIT_MS } from "../config.js";
 import { elementStore } from "../core/elementStore.js";
+import { logicalStepStore } from "../core/logicalStepStore.js";
 import { preActionCaptureStore } from "../core/preActionCaptureStore.js";
 import { stepRecorder } from "../core/stepRecorder.js";
 import { getRunDir } from "../utils/file.js";
@@ -24,7 +25,11 @@ const resolveScreenshotStep = ({
   explicitStep?: number;
 }): number => {
   if (typeof explicitStep === "number") {
-    return explicitStep;
+    return logicalStepStore.resolve(runId, explicitStep);
+  }
+  const active = logicalStepStore.getActive(runId);
+  if (active) {
+    return active.step;
   }
   const normalizedText = normalize(text);
   const existing = stepRecorder.findLatest(
@@ -37,17 +42,18 @@ const resolveScreenshotStep = ({
   if (existing) {
     return existing.step;
   }
-  return stepRecorder.getNextStep(runId);
+  return logicalStepStore.resolve(runId);
 };
 
 export const registerScreenshotTool = (server: FastMCP): void => {
-  const definition = {
+  server.addTool({
+    name: "highlight_and_capture",
     description: "Capture highlighted element screenshot",
     parameters: z.object({
       element_id: z.string().min(1),
       step: z.number().int().nonnegative().optional(),
       action: z.string().min(1),
-      text: z.string().min(1),
+      text: z.string().min(1).optional(),
       run_id: z.string().min(1),
     }),
     execute: async ({
@@ -60,7 +66,7 @@ export const registerScreenshotTool = (server: FastMCP): void => {
       element_id: string;
       step?: number;
       action: string;
-      text: string;
+      text?: string;
       run_id: string;
     }) => {
       const page = await browserManager.getPage(run_id);
@@ -68,30 +74,35 @@ export const registerScreenshotTool = (server: FastMCP): void => {
       const safeAction = action.replaceAll(/[\\/:*?"<>|]/g, "_");
       const startedAt = Date.now();
       const pageUrlBefore = page.url();
+      const activeStep = logicalStepStore.getActive(run_id);
+      const desc = text ?? activeStep?.desc ?? action;
       const resolvedStep = resolveScreenshotStep({
         runId: run_id,
         action,
-        text,
+        text: desc,
         explicitStep: step,
       });
       const existingStep = stepRecorder.findLatest(run_id, (item) => item.step === resolvedStep);
-      const isPreActionCapture =
-        !existingStep && action.toLowerCase().includes("click");
+      const isPreActionCapture = !existingStep && action.toLowerCase().includes("click");
 
       const recordSuccess = (stepNumber: number, imagePath: string): string => {
-        stepRecorder.add(run_id, {
-          step: stepNumber,
-          desc: text,
-          image: imagePath,
-          action,
-          status: "SUCCESS",
-          retryCount: 0,
-          latencyMs: Date.now() - startedAt,
-          pageUrlBefore,
-          pageUrlAfter: page.url(),
-          createdAt: new Date().toISOString(),
-          captureOnly: isPreActionCapture,
-        });
+        stepRecorder.add(
+          run_id,
+          logicalStepStore.applyContext(run_id, stepNumber, {
+            step: stepNumber,
+            desc,
+            image: imagePath,
+            action,
+            status: "SUCCESS",
+            retryCount: 0,
+            latencyMs: Date.now() - startedAt,
+            pageUrlBefore,
+            pageUrlAfter: page.url(),
+            createdAt: new Date().toISOString(),
+            captureOnly: isPreActionCapture,
+          }),
+        );
+        logicalStepStore.clearActive(run_id, stepNumber);
         return imagePath;
       };
 
@@ -118,8 +129,7 @@ export const registerScreenshotTool = (server: FastMCP): void => {
         return cached.screenshotPath;
       };
 
-      const initialStep = resolvedStep;
-      const screenshotPath = path.join(runDir, `${initialStep}_${safeAction}.png`);
+      const screenshotPath = path.join(runDir, `${resolvedStep}_${safeAction}.png`);
 
       try {
         const locator = await elementStore.get(run_id, element_id);
@@ -128,38 +138,35 @@ export const registerScreenshotTool = (server: FastMCP): void => {
         if (!box) {
           throw new Error("Could not get bounding box of element");
         }
-        await renderHighlight(page, box, text);
+        await renderHighlight(page, box, desc);
         await page.waitForTimeout(SCREENSHOT_RENDER_WAIT_MS);
         await page.screenshot({ path: screenshotPath });
         await clearHighlight(page);
-        return recordSuccess(initialStep, screenshotPath);
+        return recordSuccess(resolvedStep, screenshotPath);
       } catch {
         await clearHighlight(page).catch(() => undefined);
-        const fallbackPath = resolveFallback(initialStep);
+        const fallbackPath = resolveFallback(resolvedStep);
         if (fallbackPath) {
-          return recordSuccess(initialStep, fallbackPath);
+          return recordSuccess(resolvedStep, fallbackPath);
         }
-        stepRecorder.add(run_id, {
-          step: initialStep,
-          desc: text,
-          action,
-          status: "FAILED",
-          errorCode: "SCREENSHOT_FAILED",
-          retryCount: 0,
-          latencyMs: Date.now() - startedAt,
-          pageUrlBefore,
-          pageUrlAfter: page.url(),
-          createdAt: new Date().toISOString(),
-        });
+        stepRecorder.add(
+          run_id,
+          logicalStepStore.applyContext(run_id, resolvedStep, {
+            step: resolvedStep,
+            desc,
+            action,
+            status: "FAILED",
+            errorCode: "SCREENSHOT_FAILED",
+            retryCount: 0,
+            latencyMs: Date.now() - startedAt,
+            pageUrlBefore,
+            pageUrlAfter: page.url(),
+            createdAt: new Date().toISOString(),
+          }),
+        );
+        logicalStepStore.clearActive(run_id, resolvedStep);
         throw new Error("Failed to capture screenshot");
       }
     },
-  };
-
-  server.addTool({
-    name: "highlight_and_capture",
-    ...definition,
   });
-
-  
 };
