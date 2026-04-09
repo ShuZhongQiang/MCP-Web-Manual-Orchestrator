@@ -501,9 +501,17 @@ const collectActiveLayers = async ({
 
       const rank = (node: HTMLElement, index: number): number => {
         const zIndex = Number.parseInt(window.getComputedStyle(node).zIndex || "0", 10);
-        const rect = node.getBoundingClientRect();
-        const area = rect.width * rect.height;
-        return (Number.isFinite(zIndex) ? zIndex : 0) * 1_000_000 + Math.round(area) + index;
+        const kindPriority =
+          classify(node) === "dropdown"
+            ? 5
+            : classify(node) === "popover"
+              ? 4
+              : classify(node) === "dialog"
+                ? 3
+                : classify(node) === "drawer"
+                  ? 2
+                  : 1;
+        return (Number.isFinite(zIndex) ? zIndex : 0) * 1_000_000 + kindPriority * 1_000 + index;
       };
 
       const optionTextList = (node: HTMLElement): string[] => {
@@ -897,7 +905,17 @@ const collectFormFields = async ({
         pushControl(resolveInteractiveControl(control as HTMLElement));
       });
 
-      const activeDropdown = Array.from(document.querySelectorAll(dropdownLayerSelector)).find(isVisible) as HTMLElement | undefined;
+      const activeDropdown = Array.from(document.querySelectorAll(dropdownLayerSelector))
+        .filter(isVisible)
+        .map((node, index) => ({
+          node: node as HTMLElement,
+          index,
+          score: (() => {
+            const zIndex = Number.parseInt(window.getComputedStyle(node).zIndex || "0", 10);
+            return (Number.isFinite(zIndex) ? zIndex : 0) * 1_000_000 + index;
+          })(),
+        }))
+        .sort((left, right) => right.score - left.score || right.index - left.index)[0]?.node;
       const activeDropdownOptions = activeDropdown
         ? Array.from(
             activeDropdown.querySelectorAll("[role='option'], .ant-select-item-option-content, .el-select-dropdown__item, option"),

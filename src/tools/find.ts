@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { FastMCP } from "fastmcp";
-import type { Locator } from "playwright";
+import type { Locator, Page } from "playwright";
 import { browserManager } from "../core/browser.js";
 import { ELEMENT_WAIT_TIMEOUT_MS } from "../config.js";
 import { elementStore } from "../core/elementStore.js";
@@ -42,16 +42,33 @@ const DROPDOWN_LAYER_SELECTOR = [
   ".ant-picker-dropdown",
   ".ant-dropdown",
 ].join(", ");
+const SEARCH_SCOPE_ATTR = "data-mcp-search-scope-id";
 
 const EXCLUDED_CELL_CLASSES = /cell|el-table__cell|td|th/i;
+
+type ActiveLayerKind = "none" | "dialog" | "drawer" | "dropdown" | "popover" | "other";
 
 type CandidateContext = {
   isTopMostAtPoint: boolean;
   insideActiveLayer: boolean;
   insideTopLayer: boolean;
   insideDropdownLayer: boolean;
-  insideDialogLayer: boolean;
-  activeLayerRole: "none" | "dialog" | "dropdown";
+  insideSearchScope: boolean;
+  activeLayerKind: ActiveLayerKind;
+};
+
+type SearchScope = {
+  hasActiveLayer: boolean;
+  layerKind: ActiveLayerKind;
+  markerValue?: string;
+  selector?: string;
+};
+
+type SearchResult = {
+  candidates: ElementCandidate[];
+  searchScope: SearchScope;
+  outsideScopeMatchCount: number;
+  conflictDetected: boolean;
 };
 
 const getElementSnapshot = async (locator: Locator): Promise<ElementSnapshot> => {
@@ -77,7 +94,7 @@ const isLikelyCssSelector = (target: string): boolean => {
 
 const normalize = (value: string): string => value.trim().toLowerCase();
 
-const sanitizeTarget = (value: string): string => value.trim().replace(/[“”"'`]/g, "").replace(/\s+/g, " ");
+const sanitizeTarget = (value: string): string => value.trim().replace(/[鈥溾€?'`]/g, "").replace(/\s+/g, " ");
 
 const buildLookupTargets = (target: string): string[] => {
   const variants = new Set<string>();
@@ -144,7 +161,130 @@ const isInputLikeSnapshot = (snapshot: ElementSnapshot): boolean => {
   return /(ant-select|el-select|input|textarea|combobox|selector)/i.test(snapshot.className);
 };
 
-const getCandidateContext = async (locator: Locator): Promise<CandidateContext> => {
+const resolveSearchScope = async (page: Page): Promise<SearchScope> => {
+  const scope: SearchScope = await page
+    .evaluate(
+      ({
+        activeLayerSelector,
+        dropdownLayerSelector,
+        scopeAttr,
+      }: {
+        activeLayerSelector: string;
+        dropdownLayerSelector: string;
+        scopeAttr: string;
+      }) => {
+        const isVisible = (node: Element | null): node is HTMLElement => {
+          if (!(node instanceof HTMLElement)) {
+            return false;
+          }
+          const style = window.getComputedStyle(node);
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            Number(style.opacity || "1") === 0
+          ) {
+            return false;
+          }
+          const rect = node.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+
+        const classify = (node: HTMLElement): ActiveLayerKind => {
+          if (node.matches(dropdownLayerSelector)) {
+            return "dropdown";
+          }
+          if (node.matches(".ant-drawer, .el-drawer, [class*='drawer']")) {
+            return "drawer";
+          }
+          if (node.matches(".ant-popover, .ant-dropdown, [class*='popover'], [class*='dropdown']")) {
+            return "popover";
+          }
+          if (node.matches("[role='dialog'], .ant-modal, .ant-modal-root, .el-dialog")) {
+            return "dialog";
+          }
+          return "other";
+        };
+
+        const layerPriority = (kind: ActiveLayerKind): number => {
+          switch (kind) {
+            case "dropdown":
+              return 5;
+            case "popover":
+              return 4;
+            case "dialog":
+              return 3;
+            case "drawer":
+              return 2;
+            case "other":
+              return 1;
+            default:
+              return 0;
+          }
+        };
+
+        const rankLayer = (node: HTMLElement, index: number): number => {
+          const zIndex = Number.parseInt(window.getComputedStyle(node).zIndex || "0", 10);
+          const safeZIndex = Number.isFinite(zIndex) ? zIndex : 0;
+          return safeZIndex * 1_000_000 + layerPriority(classify(node)) * 1_000 + index;
+        };
+
+        document.querySelectorAll(`[${scopeAttr}]`).forEach((node) => {
+          if (node instanceof HTMLElement) {
+            node.removeAttribute(scopeAttr);
+          }
+        });
+
+        const layers = Array.from(document.querySelectorAll(activeLayerSelector))
+          .filter(isVisible)
+          .map((node, index) => ({
+            node,
+            index,
+            rank: rankLayer(node, index),
+          }))
+          .sort((left, right) => right.rank - left.rank || right.index - left.index);
+
+        const topLayer = layers[0]?.node ?? null;
+        if (!topLayer) {
+          return {
+            hasActiveLayer: false,
+            layerKind: "none" as const,
+          };
+        }
+
+        const markerValue = `mcp-search-scope-${Date.now()}`;
+        topLayer.setAttribute(scopeAttr, markerValue);
+
+        return {
+          hasActiveLayer: true,
+          layerKind: classify(topLayer),
+          markerValue,
+        };
+      },
+      {
+        activeLayerSelector: ACTIVE_LAYER_SELECTOR,
+        dropdownLayerSelector: DROPDOWN_LAYER_SELECTOR,
+        scopeAttr: SEARCH_SCOPE_ATTR,
+      },
+    )
+    .catch(() => ({
+      hasActiveLayer: false,
+      layerKind: "none" as const,
+    }));
+
+  return {
+    ...scope,
+    selector: scope.markerValue ? `[${SEARCH_SCOPE_ATTR}="${scope.markerValue}"]` : undefined,
+  };
+};
+
+const createSearchRoot = (page: Page, searchScope: SearchScope): Page | Locator => {
+  if (!searchScope.selector) {
+    return page;
+  }
+  return page.locator(searchScope.selector).first();
+};
+
+const getCandidateContext = async (locator: Locator, searchScope: SearchScope): Promise<CandidateContext> => {
   return locator
     .evaluate(
       (
@@ -152,9 +292,11 @@ const getCandidateContext = async (locator: Locator): Promise<CandidateContext> 
         {
           activeLayerSelector,
           dropdownLayerSelector,
+          scopeSelector,
         }: {
           activeLayerSelector: string;
           dropdownLayerSelector: string;
+          scopeSelector?: string;
         },
       ) => {
         const element = el as HTMLElement;
@@ -174,11 +316,46 @@ const getCandidateContext = async (locator: Locator): Promise<CandidateContext> 
           return rect.width > 0 && rect.height > 0;
         };
 
-        const rankLayer = (node: HTMLElement): number => {
+        const classify = (node: HTMLElement | null): ActiveLayerKind => {
+          if (!node) {
+            return "none";
+          }
+          if (node.matches(dropdownLayerSelector)) {
+            return "dropdown";
+          }
+          if (node.matches(".ant-drawer, .el-drawer, [class*='drawer']")) {
+            return "drawer";
+          }
+          if (node.matches(".ant-popover, .ant-dropdown, [class*='popover'], [class*='dropdown']")) {
+            return "popover";
+          }
+          if (node.matches("[role='dialog'], .ant-modal, .ant-modal-root, .el-dialog")) {
+            return "dialog";
+          }
+          return "other";
+        };
+
+        const layerPriority = (kind: ActiveLayerKind): number => {
+          switch (kind) {
+            case "dropdown":
+              return 5;
+            case "popover":
+              return 4;
+            case "dialog":
+              return 3;
+            case "drawer":
+              return 2;
+            case "other":
+              return 1;
+            default:
+              return 0;
+          }
+        };
+
+        const rankLayer = (node: HTMLElement, index: number): number => {
           const zIndex = Number.parseInt(window.getComputedStyle(node).zIndex || "0", 10);
-          const rect = node.getBoundingClientRect();
-          const area = rect.width * rect.height;
-          return (Number.isFinite(zIndex) ? zIndex : 0) * 1_000_000 + Math.round(area);
+          const safeZIndex = Number.isFinite(zIndex) ? zIndex : 0;
+          return safeZIndex * 1_000_000 + layerPriority(classify(node)) * 1_000 + index;
         };
 
         const activeLayers = Array.from(document.querySelectorAll(activeLayerSelector))
@@ -186,11 +363,15 @@ const getCandidateContext = async (locator: Locator): Promise<CandidateContext> 
           .map((node, index) => ({
             node,
             index,
-            rank: rankLayer(node),
+            rank: rankLayer(node, index),
           }))
           .sort((left, right) => right.rank - left.rank || right.index - left.index);
 
         const topLayer = activeLayers[0]?.node ?? null;
+        const scopeRoot =
+          scopeSelector && document.querySelector(scopeSelector) instanceof HTMLElement
+            ? (document.querySelector(scopeSelector) as HTMLElement)
+            : null;
         const rect = element.getBoundingClientRect();
         const sampleX = Math.min(Math.max(rect.left + Math.min(rect.width / 2, Math.max(rect.width - 2, 1)), 1), window.innerWidth - 1);
         const sampleY = Math.min(Math.max(rect.top + Math.min(rect.height / 2, Math.max(rect.height - 2, 1)), 1), window.innerHeight - 1);
@@ -201,25 +382,22 @@ const getCandidateContext = async (locator: Locator): Promise<CandidateContext> 
 
         const activeLayer = element.closest(activeLayerSelector) as HTMLElement | null;
         const dropdownLayer = element.closest(dropdownLayerSelector) as HTMLElement | null;
-        const dialogLayer = element.closest("[role='dialog'], .ant-modal, .ant-modal-root, .el-dialog, .el-drawer, .ant-drawer") as HTMLElement | null;
-        const topLayerRole: CandidateContext["activeLayerRole"] = !topLayer
-          ? "none"
-          : topLayer.matches(dropdownLayerSelector)
-            ? "dropdown"
-            : "dialog";
 
         return {
           isTopMostAtPoint: insideTopHit,
           insideActiveLayer: Boolean(activeLayer),
           insideTopLayer: Boolean(topLayer && (topLayer === element || topLayer.contains(element))),
           insideDropdownLayer: Boolean(dropdownLayer),
-          insideDialogLayer: Boolean(dialogLayer),
-          activeLayerRole: topLayerRole,
+          insideSearchScope: Boolean(
+            !scopeRoot || scopeRoot === element || scopeRoot.contains(element),
+          ),
+          activeLayerKind: classify(topLayer),
         };
       },
       {
         activeLayerSelector: ACTIVE_LAYER_SELECTOR,
         dropdownLayerSelector: DROPDOWN_LAYER_SELECTOR,
+        scopeSelector: searchScope.selector,
       },
     )
     .catch(() => ({
@@ -227,8 +405,8 @@ const getCandidateContext = async (locator: Locator): Promise<CandidateContext> 
       insideActiveLayer: false,
       insideTopLayer: false,
       insideDropdownLayer: false,
-      insideDialogLayer: false,
-      activeLayerRole: "none" as const,
+      insideSearchScope: !searchScope.hasActiveLayer,
+      activeLayerKind: "none" as const,
     }));
 };
 
@@ -237,6 +415,7 @@ const getScoreBias = (
   strategyName: string,
   snapshot: ElementSnapshot,
   context: CandidateContext,
+  searchScope: SearchScope,
 ): number => {
   const interactive = isInteractiveSnapshot(snapshot);
   const inputLike = isInputLikeSnapshot(snapshot);
@@ -261,14 +440,13 @@ const getScoreBias = (
   if (!context.isTopMostAtPoint) {
     scoreBias -= 120;
   }
-  if (context.activeLayerRole !== "none") {
-    scoreBias += context.insideTopLayer ? 48 : -140;
-    if (context.activeLayerRole === "dropdown") {
-      scoreBias += context.insideDropdownLayer ? 42 : -110;
+  if (searchScope.hasActiveLayer) {
+    scoreBias += context.insideSearchScope ? 56 : -180;
+    if (searchScope.layerKind === "dropdown") {
+      scoreBias += context.insideDropdownLayer ? 48 : -130;
     }
-    if (context.activeLayerRole === "dialog") {
-      scoreBias += context.insideDialogLayer ? 28 : -36;
-    }
+  } else if (context.activeLayerKind !== "none") {
+    scoreBias += context.insideTopLayer ? 44 : -140;
   }
   if (hasOptionIntent) {
     scoreBias += context.insideDropdownLayer ? 68 : -90;
@@ -285,7 +463,11 @@ const isValidationOnlyNode = (snapshot: ElementSnapshot): boolean => {
   return VALIDATION_HINT_RE.test(text);
 };
 
-const getInspectFallbackLocator = async (runId: string, target: string): Promise<Locator | undefined> => {
+const getInspectFallbackLocator = async (
+  runId: string,
+  target: string,
+  searchScope: SearchScope,
+): Promise<Locator | undefined> => {
   const page = await browserManager.getPage(runId);
   const interactive = page.locator(INTERACTIVE_SELECTOR);
   const total = await interactive.count();
@@ -300,8 +482,8 @@ const getInspectFallbackLocator = async (runId: string, target: string): Promise
     if (!snapshot) {
       continue;
     }
-    const context = await getCandidateContext(item);
-    if (context.activeLayerRole !== "none" && !context.insideTopLayer) {
+    const context = await getCandidateContext(item, searchScope);
+    if (searchScope.hasActiveLayer && !context.insideSearchScope) {
       continue;
     }
     if (!context.isTopMostAtPoint && !context.insideDropdownLayer) {
@@ -316,8 +498,51 @@ const getInspectFallbackLocator = async (runId: string, target: string): Promise
   return undefined;
 };
 
-const buildCandidates = async (runId: string, target: string, maxCandidates: number): Promise<ElementCandidate[]> => {
+const countOutsideScopeMatches = async (
+  runId: string,
+  target: string,
+  searchScope: SearchScope,
+): Promise<number> => {
+  if (!searchScope.hasActiveLayer) {
+    return 0;
+  }
   const page = await browserManager.getPage(runId);
+  const interactive = page.locator(INTERACTIVE_SELECTOR);
+  const total = await interactive.count().catch(() => 0);
+  let count = 0;
+
+  for (let i = 0; i < total; i += 1) {
+    const item = interactive.nth(i);
+    const visible = await item.isVisible().catch(() => false);
+    if (!visible) {
+      continue;
+    }
+    const snapshot = await getElementSnapshot(item).catch(() => undefined);
+    if (!snapshot || isValidationOnlyNode(snapshot)) {
+      continue;
+    }
+    const searchable =
+      `${snapshot.text} ${snapshot.ariaLabel} ${snapshot.placeholder} ${snapshot.idAttr} ${snapshot.nameAttr}`.toLowerCase();
+    if (!matchesTarget(searchable, target)) {
+      continue;
+    }
+    const context = await getCandidateContext(item, searchScope);
+    if (context.insideSearchScope) {
+      continue;
+    }
+    count += 1;
+    if (count >= 6) {
+      break;
+    }
+  }
+
+  return count;
+};
+
+const buildCandidates = async (runId: string, target: string, maxCandidates: number): Promise<SearchResult> => {
+  const page = await browserManager.getPage(runId);
+  const searchScope = await resolveSearchScope(page);
+  const searchRoot = createSearchRoot(page, searchScope);
   const strategyDefs: Array<{ name: string; score: number; locator: Locator }> = [];
   const lookupTargets = buildLookupTargets(target);
 
@@ -326,32 +551,18 @@ const buildCandidates = async (runId: string, target: string, maxCandidates: num
   };
 
   if (isLikelyCssSelector(target)) {
-    addStrategy("stableSelector", 140, page.locator(target));
+    addStrategy("stableSelector", 140, searchRoot.locator(target));
   }
 
   for (const [index, lookupTarget] of lookupTargets.entries()) {
     const offset = index * 8;
-    addStrategy(
-      `activeOptionRole${index}`,
-      138 - offset,
-      page.locator(DROPDOWN_LAYER_SELECTOR).getByRole("option", { name: lookupTarget, exact: false }),
-    );
-    addStrategy(
-      `activeOptionText${index}`,
-      134 - offset,
-      page.locator(DROPDOWN_LAYER_SELECTOR).getByText(lookupTarget, { exact: false }),
-    );
-    addStrategy(
-      `activeDialogText${index}`,
-      128 - offset,
-      page.locator("[role='dialog'], .ant-modal, .ant-modal-root, .el-dialog, .el-drawer, .ant-drawer").getByText(lookupTarget, { exact: false }),
-    );
-    addStrategy(`label${index}`, 126 - offset, page.getByLabel(lookupTarget, { exact: false }));
-    addStrategy(`placeholder${index}`, 122 - offset, page.getByPlaceholder(lookupTarget, { exact: false }));
-    addStrategy(`comboboxRole${index}`, 118 - offset, page.getByRole("combobox", { name: lookupTarget, exact: false }));
-    addStrategy(`optionRole${index}`, 114 - offset, page.getByRole("option", { name: lookupTarget, exact: false }));
-    addStrategy(`buttonRole${index}`, 124 - offset, page.getByRole("button", { name: lookupTarget, exact: false }));
-    addStrategy(`text${index}`, 96 - offset, page.getByText(lookupTarget, { exact: false }));
+    addStrategy(`optionRole${index}`, 138 - offset, searchRoot.getByRole("option", { name: lookupTarget, exact: false }));
+    addStrategy(`optionText${index}`, 134 - offset, searchRoot.getByText(lookupTarget, { exact: false }));
+    addStrategy(`label${index}`, 126 - offset, searchRoot.getByLabel(lookupTarget, { exact: false }));
+    addStrategy(`placeholder${index}`, 122 - offset, searchRoot.getByPlaceholder(lookupTarget, { exact: false }));
+    addStrategy(`comboboxRole${index}`, 118 - offset, searchRoot.getByRole("combobox", { name: lookupTarget, exact: false }));
+    addStrategy(`buttonRole${index}`, 124 - offset, searchRoot.getByRole("button", { name: lookupTarget, exact: false }));
+    addStrategy(`text${index}`, 96 - offset, searchRoot.getByText(lookupTarget, { exact: false }));
   }
 
   const candidates: ElementCandidate[] = [];
@@ -375,8 +586,8 @@ const buildCandidates = async (runId: string, target: string, maxCandidates: num
       if (!snapshot || isValidationOnlyNode(snapshot)) {
         continue;
       }
-      const context = await getCandidateContext(item);
-      if (context.activeLayerRole !== "none" && !context.insideTopLayer) {
+      const context = await getCandidateContext(item, searchScope);
+      if (searchScope.hasActiveLayer && !context.insideSearchScope) {
         continue;
       }
       if (!context.isTopMostAtPoint && !context.insideDropdownLayer) {
@@ -388,7 +599,7 @@ const buildCandidates = async (runId: string, target: string, maxCandidates: num
       }
       dedupe.add(fingerprint);
       const elementId = elementStore.set(runId, item, snapshot);
-      const adjustedScore = strategy.score - i + getScoreBias(target, strategy.name, snapshot, context);
+      const adjustedScore = strategy.score - i + getScoreBias(target, strategy.name, snapshot, context, searchScope);
       candidates.push({
         element_id: elementId,
         strategy: strategy.name,
@@ -404,30 +615,117 @@ const buildCandidates = async (runId: string, target: string, maxCandidates: num
   for (const strategy of strategyDefs) {
     await collectFromStrategy(strategy);
     if (candidates.length >= maxCandidates) {
-      return candidates;
+      break;
     }
   }
 
   if (candidates.length === 0) {
-    const inspectFallback = await getInspectFallbackLocator(runId, target);
+    const inspectFallback = await getInspectFallbackLocator(runId, target, searchScope);
     if (inspectFallback) {
       await collectFromStrategy({ name: "inspectSummary", score: 70, locator: inspectFallback });
     }
   }
 
   candidates.sort((left, right) => right.score - left.score);
-  return candidates;
+  const outsideScopeMatchCount = await countOutsideScopeMatches(runId, target, searchScope);
+
+  return {
+    candidates,
+    searchScope,
+    outsideScopeMatchCount,
+    conflictDetected: outsideScopeMatchCount > 0,
+  };
+};
+
+const buildNotFoundMessage = (target: string, searchResult: SearchResult): string => {
+  const scopeHint =
+    searchResult.outsideScopeMatchCount > 0
+      ? " Similar text exists outside the active layer and was blocked by scoped search."
+      : "";
+
+  if (searchResult.searchScope.hasActiveLayer) {
+    if (
+      searchResult.searchScope.layerKind === "dropdown" &&
+      OPTION_INTENT_RE.test(normalize(target))
+    ) {
+      return `Option not found in active dropdown: ${target}${scopeHint}`;
+    }
+    return `Element not found in active ${searchResult.searchScope.layerKind} layer: ${target}${scopeHint}`;
+  }
+  return `Element not found for target: ${target}`;
+};
+
+const toFindCandidatesPayload = ({
+  target,
+  searchResult,
+}: {
+  target: string;
+  searchResult: SearchResult;
+}) => {
+  return JSON.stringify({
+    selected_element_id: searchResult.candidates[0]?.element_id,
+    target,
+    count: searchResult.candidates.length,
+    search_scope: {
+      applied: searchResult.searchScope.hasActiveLayer,
+      layer_kind: searchResult.searchScope.layerKind,
+    },
+    conflict_detected: searchResult.conflictDetected,
+    outside_scope_match_count: searchResult.outsideScopeMatchCount,
+    candidates: searchResult.candidates,
+  });
 };
 
 export const registerFindTool = (server: FastMCP): void => {
-  const definition = {
-    description: "定位页面元素",
-    parameters: z.object({
-      run_id: z.string().min(1),
-      target: z.string().min(1),
+  const baseParameters = z.object({
+    run_id: z.string().min(1),
+    target: z.string().min(1),
+    max_candidates: z.number().int().min(1).max(20).default(8),
+    retry_count: z.number().int().min(0).max(2).default(1),
+  });
+
+  const executeFind = async ({
+    run_id,
+    target,
+    max_candidates,
+    retry_count,
+  }: {
+    run_id: string;
+    target: string;
+    max_candidates: number;
+    retry_count: number;
+  }): Promise<SearchResult> => {
+    let searchResult: SearchResult = {
+      candidates: [],
+      searchScope: {
+        hasActiveLayer: false,
+        layerKind: "none",
+      },
+      outsideScopeMatchCount: 0,
+      conflictDetected: false,
+    };
+
+    for (let attempt = 0; attempt <= retry_count; attempt += 1) {
+      searchResult = await buildCandidates(run_id, target, max_candidates);
+      if (searchResult.candidates.length > 0) {
+        break;
+      }
+      const page = await browserManager.getPage(run_id);
+      await page.waitForTimeout(Math.min(ELEMENT_WAIT_TIMEOUT_MS, 400) + attempt * 200);
+    }
+
+    if (searchResult.candidates.length === 0) {
+      throw new Error(buildNotFoundMessage(target, searchResult));
+    }
+
+    return searchResult;
+  };
+
+  server.addTool({
+    name: "find_element",
+    description: "瀹氫綅椤甸潰鍏冪礌",
+    parameters: baseParameters.extend({
       return_candidates: z.boolean().default(false),
-      max_candidates: z.number().int().min(1).max(20).default(8),
-      retry_count: z.number().int().min(0).max(2).default(1),
     }),
     execute: async ({
       run_id,
@@ -442,32 +740,47 @@ export const registerFindTool = (server: FastMCP): void => {
       max_candidates: number;
       retry_count: number;
     }) => {
-      let candidates: ElementCandidate[] = [];
-      for (let attempt = 0; attempt <= retry_count; attempt += 1) {
-        candidates = await buildCandidates(run_id, target, max_candidates);
-        if (candidates.length > 0) {
-          break;
-        }
-        const page = await browserManager.getPage(run_id);
-        await page.waitForTimeout(Math.min(ELEMENT_WAIT_TIMEOUT_MS, 400) + attempt * 200);
-      }
-      if (candidates.length === 0) {
-        throw new Error(`Element not found for target: ${target}`);
-      }
+      const searchResult = await executeFind({
+        run_id,
+        target,
+        max_candidates,
+        retry_count,
+      });
       if (return_candidates) {
-        return JSON.stringify({
-          selected_element_id: candidates[0].element_id,
+        return toFindCandidatesPayload({
           target,
-          count: candidates.length,
-          candidates,
+          searchResult,
         });
       }
-      return candidates[0].element_id;
+      return searchResult.candidates[0].element_id;
     },
-  };
+  });
 
   server.addTool({
-    name: "find_element",
-    ...definition,
+    name: "find_candidates",
+    description: "鍦ㄥ綋鍓嶆湁鏁堝墠鏅眰鍐呰繑鍥炲厓绱犲€欓€夐泦",
+    parameters: baseParameters,
+    execute: async ({
+      run_id,
+      target,
+      max_candidates,
+      retry_count,
+    }: {
+      run_id: string;
+      target: string;
+      max_candidates: number;
+      retry_count: number;
+    }) => {
+      const searchResult = await executeFind({
+        run_id,
+        target,
+        max_candidates,
+        retry_count,
+      });
+      return toFindCandidatesPayload({
+        target,
+        searchResult,
+      });
+    },
   });
 };

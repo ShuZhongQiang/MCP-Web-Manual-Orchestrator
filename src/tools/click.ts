@@ -31,6 +31,7 @@ const COMBOBOX_POPUP_SELECTOR =
   "[role='listbox'], .ant-select-dropdown, .ant-select-dropdown-hidden, .el-select-dropdown, .el-popper, .select-dropdown";
 const COMBOBOX_OPTION_SELECTOR =
   "[role='option'], .ant-select-item-option, .el-select-dropdown__item, .ant-select-dropdown-menu-item, option";
+const COMBOBOX_POPUP_SCOPE_ATTR = "data-mcp-combobox-popup-id";
 
 const currentLocalDate = (): string => {
   const now = new Date();
@@ -591,6 +592,75 @@ const clickVisibleOption = async (locator: Locator, maxScan = 8): Promise<boolea
   return false;
 };
 
+const resolveActiveComboboxPopup = async (page: Page): Promise<Locator | undefined> => {
+  const markerValue = await page
+    .evaluate(
+      ({
+        popupSelector,
+        scopeAttr,
+      }: {
+        popupSelector: string;
+        scopeAttr: string;
+      }) => {
+        const isVisible = (node: Element | null): node is HTMLElement => {
+          if (!(node instanceof HTMLElement)) {
+            return false;
+          }
+          const style = window.getComputedStyle(node);
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            Number(style.opacity || "1") === 0
+          ) {
+            return false;
+          }
+          const rect = node.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+
+        const rankPopup = (node: HTMLElement, index: number): number => {
+          const zIndex = Number.parseInt(window.getComputedStyle(node).zIndex || "0", 10);
+          const safeZIndex = Number.isFinite(zIndex) ? zIndex : 0;
+          return safeZIndex * 1_000_000 + index;
+        };
+
+        document.querySelectorAll(`[${scopeAttr}]`).forEach((node) => {
+          if (node instanceof HTMLElement) {
+            node.removeAttribute(scopeAttr);
+          }
+        });
+
+        const topPopup = Array.from(document.querySelectorAll(popupSelector))
+          .filter(isVisible)
+          .map((node, index) => ({
+            node,
+            index,
+            rank: rankPopup(node, index),
+          }))
+          .sort((left, right) => right.rank - left.rank || right.index - left.index)[0]?.node;
+
+        if (!(topPopup instanceof HTMLElement)) {
+          return undefined;
+        }
+
+        const marker = `mcp-combobox-popup-${Date.now()}`;
+        topPopup.setAttribute(scopeAttr, marker);
+        return marker;
+      },
+      {
+        popupSelector: COMBOBOX_POPUP_SELECTOR,
+        scopeAttr: COMBOBOX_POPUP_SCOPE_ATTR,
+      },
+    )
+    .catch(() => undefined);
+
+  if (!markerValue) {
+    return undefined;
+  }
+
+  return page.locator(`[${COMBOBOX_POPUP_SCOPE_ATTR}="${markerValue}"]`).first();
+};
+
 const chooseSelectOption = (options: SelectOptionMeta[], preferredText: string): SelectOptionMeta | undefined => {
   const active = options.filter((item) => !item.disabled);
   if (active.length === 0) {
@@ -611,31 +681,37 @@ const chooseSelectOption = (options: SelectOptionMeta[], preferredText: string):
 };
 
 const selectComboboxOption = async (page: Page, preferredText: string): Promise<boolean> => {
+  const popup = await resolveActiveComboboxPopup(page);
+  if (!popup) {
+    return false;
+  }
   const optionQueries: Locator[] = [];
   const normalizedPreferred = normalize(preferredText);
   
   if (normalizedPreferred.length > 0) {
-    optionQueries.push(page.getByRole("option", { name: preferredText, exact: false }));
+    optionQueries.push(popup.getByRole("option", { name: preferredText, exact: false }));
     optionQueries.push(
-      page
+      popup
         .locator(".ant-select-item-option-content, .el-select-dropdown__item, [role='option']")
         .filter({ hasText: preferredText }),
     );
     optionQueries.push(
-      page.locator(".el-select-dropdown__item").filter({
+      popup.locator(".el-select-dropdown__item").filter({
         hasText: preferredText
       })
     );
     optionQueries.push(
-      page.locator(".ant-select-dropdown-menu-item").filter({
+      popup.locator(".ant-select-dropdown-menu-item").filter({
         hasText: preferredText
       })
     );
   }
-  optionQueries.push(page.locator(".ant-select-item-option:not(.ant-select-item-option-disabled) .ant-select-item-option-content"));
-  optionQueries.push(page.locator(".el-select-dropdown__item:not(.is-disabled)"));
-  optionQueries.push(page.locator(".ant-select-dropdown-menu-item:not(.ant-select-dropdown-menu-item-disabled)"));
-  optionQueries.push(page.locator("[role='option']"));
+  if (normalizedPreferred.length === 0) {
+    optionQueries.push(popup.locator(".ant-select-item-option:not(.ant-select-item-option-disabled) .ant-select-item-option-content"));
+    optionQueries.push(popup.locator(".el-select-dropdown__item:not(.is-disabled)"));
+    optionQueries.push(popup.locator(".ant-select-dropdown-menu-item:not(.ant-select-dropdown-menu-item-disabled)"));
+    optionQueries.push(popup.locator("[role='option']"));
+  }
 
   for (const query of optionQueries) {
     if (await clickVisibleOption(query, 12)) {
