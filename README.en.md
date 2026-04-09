@@ -33,6 +33,7 @@ If your goal is "let AI operate a web app and also produce a training guide / SO
   - The default path prefers `find_element`; `inspect_summary` and `inspect_detail` are used only when needed.
 - Form validation self-healing
   - Required fields can be checked before submit, and submit failures can trigger automatic field completion and retry.
+  - After submit, at least one business success signal must be detected (dialog closes, URL/page state changes, success feedback appears, new list record appears, or validation errors disappear). Otherwise it enters a state-unconfirmed branch and fails explicitly instead of treating click execution as business success.
 - Form-mode gateway
   - Add/edit/save flows inspect the active layer and form field summary first, then compile a structured pending queue before any field action runs.
 - Full audit fields
@@ -79,7 +80,7 @@ The MCP tools currently exported by the codebase are:
 | --- | --- |
 | `navigate` | Opens a target URL and records audit data for the step |
 | `find_element` | Locates elements by semantic cues, text, placeholder, role, or CSS |
-| `click` | Performs clicks with retry, navigation detection, and submit-time self-healing |
+| `click` | Performs clicks with retry, navigation detection, submit-time self-healing, and post-submit success-signal confirmation |
 | `input_text` | Writes input values and records audit fields |
 | `highlight_and_capture` | Highlights the target element and captures a screenshot, with pre-click fallback support |
 | `inspect_summary` | Returns a lightweight summary of interactive elements on the page |
@@ -290,7 +291,7 @@ Expected result:
 | Token strategy | Often pulls large page structures | Minimal inspection first, expand only when needed |
 | Session isolation | Usually managed by the caller | Built-in `run_id` isolation |
 | Screenshot strategy | Usually plain screenshots | Highlighted screenshots with click fallback |
-| Form handling | Fail fast on submit errors | Pre-submit checks plus validation self-healing |
+| Form handling | Fail fast on submit errors | Pre-submit checks, validation self-healing, and post-submit state confirmation |
 | Output | Execution result only | Deliverable HTML manual |
 
 ## Development Notes

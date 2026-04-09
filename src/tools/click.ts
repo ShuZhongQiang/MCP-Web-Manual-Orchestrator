@@ -37,6 +37,19 @@ const COMBOBOX_POPUP_SELECTOR =
 const COMBOBOX_OPTION_SELECTOR =
   "[role='option'], .ant-select-item-option, .el-select-dropdown__item, .ant-select-dropdown-menu-item, option";
 const COMBOBOX_POPUP_SCOPE_ATTR = "data-mcp-combobox-popup-id";
+const POST_SUBMIT_CONFIRM_RECHECK_MS = 900;
+const POST_SUBMIT_UNCONFIRMED_WAIT_MS = 1400;
+const SUBMIT_STATUS_UNCONFIRMED_CODE = "SUBMIT_STATUS_UNCONFIRMED";
+const SUCCESS_FEEDBACK_TEXT_RE =
+  /(?:\u6210\u529f|\u5df2\u4fdd\u5b58|\u5df2\u63d0\u4ea4|\u63d0\u4ea4\u6210\u529f|\u64cd\u4f5c\u6210\u529f|saved|submitted|created|updated|success)/i;
+const ACTIVE_LAYER_SELECTOR =
+  "[role='dialog'], .ant-modal, .ant-modal-root, .el-dialog, .el-drawer, .ant-drawer";
+const SUCCESS_FEEDBACK_SELECTOR =
+  "[role='alert'], .ant-message-notice-content, .ant-notification-notice-message, .el-message, .el-notification, .toast, .notification, .snackbar, [aria-live='assertive'], [aria-live='polite']";
+const LIST_ROW_SELECTOR =
+  "table tbody tr, .ant-table-tbody > tr, .el-table__body-wrapper tbody tr, [role='rowgroup'] [role='row']";
+const VALIDATION_MARKER_SELECTOR =
+  "[aria-invalid='true'], .ant-form-item-explain-error, .el-form-item__error, .is-error .el-input__wrapper, .is-error .el-select__wrapper";
 
 const currentLocalDate = (): string => {
   const now = new Date();
@@ -147,6 +160,7 @@ type SelfHealAudit = {
   evidence: NonNullable<StepRecord["evidence"]>;
   missingFields: string[];
   filledFields: string[];
+  submitSignals: string[];
   rounds: number;
 };
 
@@ -155,11 +169,204 @@ const createSelfHealAudit = (): SelfHealAudit => ({
   evidence: [],
   missingFields: [],
   filledFields: [],
+  submitSignals: [],
   rounds: 0,
 });
 
 const mergeUnique = (current: string[], incoming: string[]): string[] => {
   return [...new Set([...current, ...incoming].map((item) => item.trim()).filter((item) => item.length > 0))];
+};
+
+type SubmitStateSnapshot = {
+  url: string;
+  activeLayerCount: number;
+  successFeedbackCount: number;
+  successFeedbackTexts: string[];
+  listRowCount: number;
+  listTopFingerprint: string;
+  invalidMarkerCount: number;
+  pageFingerprint: string;
+};
+
+type SubmitSuccessSignal =
+  | "dialog_closed"
+  | "url_or_page_state_changed"
+  | "success_feedback_appeared"
+  | "new_record_detected"
+  | "validation_cleared";
+
+type SubmitConfirmationResult = {
+  confirmed: boolean;
+  matchedSignals: SubmitSuccessSignal[];
+  before: SubmitStateSnapshot;
+  after: SubmitStateSnapshot;
+  validationFailed: boolean;
+};
+
+const captureSubmitStateSnapshot = async (page: Page): Promise<SubmitStateSnapshot> => {
+  const fallback: Omit<SubmitStateSnapshot, "url"> = {
+    activeLayerCount: 0,
+    successFeedbackCount: 0,
+    successFeedbackTexts: [],
+    listRowCount: 0,
+    listTopFingerprint: "",
+    invalidMarkerCount: 0,
+    pageFingerprint: "",
+  };
+
+  const snapshot = await page
+    .evaluate(
+      ({
+        activeLayerSelector,
+        successFeedbackSelector,
+        listRowSelector,
+        validationMarkerSelector,
+        successFeedbackTextReSource,
+      }: {
+        activeLayerSelector: string;
+        successFeedbackSelector: string;
+        listRowSelector: string;
+        validationMarkerSelector: string;
+        successFeedbackTextReSource: string;
+      }) => {
+        const normalizeText = (value: string): string => value.trim().replace(/\s+/g, " ");
+        const isVisible = (node: Element | null): node is HTMLElement => {
+          if (!(node instanceof HTMLElement)) {
+            return false;
+          }
+          const style = window.getComputedStyle(node);
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            Number(style.opacity || "1") === 0
+          ) {
+            return false;
+          }
+          const rect = node.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+        const textMatcher = new RegExp(successFeedbackTextReSource, "i");
+        const uniqueElements = new Set<Element>();
+        const addUniqueVisible = (selector: string): HTMLElement[] => {
+          const output: HTMLElement[] = [];
+          for (const node of Array.from(document.querySelectorAll(selector))) {
+            if (!isVisible(node) || uniqueElements.has(node)) {
+              continue;
+            }
+            uniqueElements.add(node);
+            output.push(node as HTMLElement);
+          }
+          return output;
+        };
+
+        const layers = addUniqueVisible(activeLayerSelector);
+        const successFeedbackTexts = addUniqueVisible(successFeedbackSelector)
+          .map((node) => normalizeText(node.textContent ?? ""))
+          .filter((text) => text.length > 0 && textMatcher.test(text))
+          .slice(0, 6);
+        const rowTexts = addUniqueVisible(listRowSelector)
+          .map((node) => normalizeText(node.textContent ?? ""))
+          .filter((text) => text.length > 0)
+          .slice(0, 24);
+        const listTopFingerprint = rowTexts.slice(0, 3).join(" | ");
+        const invalidMarkers = addUniqueVisible(validationMarkerSelector);
+        const pageFingerprint = [
+          document.title ?? "",
+          location.pathname ?? "",
+          location.search ?? "",
+          String(layers.length),
+          String(rowTexts.length),
+          listTopFingerprint,
+          String(invalidMarkers.length),
+          successFeedbackTexts.join(" | "),
+        ]
+          .map((item) => normalizeText(item))
+          .filter((item) => item.length > 0)
+          .join(" # ");
+
+        return {
+          activeLayerCount: layers.length,
+          successFeedbackCount: successFeedbackTexts.length,
+          successFeedbackTexts,
+          listRowCount: rowTexts.length,
+          listTopFingerprint,
+          invalidMarkerCount: invalidMarkers.length,
+          pageFingerprint,
+        };
+      },
+      {
+        activeLayerSelector: ACTIVE_LAYER_SELECTOR,
+        successFeedbackSelector: SUCCESS_FEEDBACK_SELECTOR,
+        listRowSelector: LIST_ROW_SELECTOR,
+        validationMarkerSelector: VALIDATION_MARKER_SELECTOR,
+        successFeedbackTextReSource: SUCCESS_FEEDBACK_TEXT_RE.source,
+      },
+    )
+    .catch(() => fallback);
+
+  return {
+    url: page.url(),
+    activeLayerCount: snapshot.activeLayerCount,
+    successFeedbackCount: snapshot.successFeedbackCount,
+    successFeedbackTexts: snapshot.successFeedbackTexts,
+    listRowCount: snapshot.listRowCount,
+    listTopFingerprint: snapshot.listTopFingerprint,
+    invalidMarkerCount: snapshot.invalidMarkerCount,
+    pageFingerprint: snapshot.pageFingerprint,
+  };
+};
+
+const evaluateSubmitConfirmation = ({
+  before,
+  after,
+  validationBeforeFailed,
+  validationAfterFailed,
+}: {
+  before: SubmitStateSnapshot;
+  after: SubmitStateSnapshot;
+  validationBeforeFailed: boolean;
+  validationAfterFailed: boolean;
+}): SubmitConfirmationResult => {
+  const matchedSignals: SubmitSuccessSignal[] = [];
+  if (before.activeLayerCount > 0 && after.activeLayerCount < before.activeLayerCount) {
+    matchedSignals.push("dialog_closed");
+  }
+  if (before.url !== after.url || before.pageFingerprint !== after.pageFingerprint) {
+    matchedSignals.push("url_or_page_state_changed");
+  }
+  const hasNewFeedbackText = after.successFeedbackTexts.some(
+    (item) => !before.successFeedbackTexts.includes(item),
+  );
+  if (after.successFeedbackCount > before.successFeedbackCount || hasNewFeedbackText) {
+    matchedSignals.push("success_feedback_appeared");
+  }
+  if (
+    after.listRowCount > before.listRowCount ||
+    (before.listRowCount > 0 && after.listTopFingerprint !== before.listTopFingerprint)
+  ) {
+    matchedSignals.push("new_record_detected");
+  }
+  if (
+    (validationBeforeFailed || before.invalidMarkerCount > 0) &&
+    !validationAfterFailed &&
+    after.invalidMarkerCount < before.invalidMarkerCount
+  ) {
+    matchedSignals.push("validation_cleared");
+  }
+  return {
+    confirmed: matchedSignals.length > 0,
+    matchedSignals,
+    before,
+    after,
+    validationFailed: validationAfterFailed,
+  };
+};
+
+const describeSubmitConfirmation = (result: SubmitConfirmationResult): string => {
+  if (result.matchedSignals.length === 0) {
+    return "none";
+  }
+  return result.matchedSignals.join(",");
 };
 
 const captureBeforeClick = async ({
@@ -993,15 +1200,140 @@ const buildSelfHealLimitError = (validation: ValidationReport): Error => {
   );
 };
 
+const buildSubmitStatusUnconfirmedError = (result: SubmitConfirmationResult): Error => {
+  return new Error(
+    `${SUBMIT_STATUS_UNCONFIRMED_CODE} ${JSON.stringify({
+      checked_signals: [
+        "dialog_closed",
+        "url_or_page_state_changed",
+        "success_feedback_appeared",
+        "new_record_detected",
+        "validation_cleared",
+      ],
+      matched_signals: result.matchedSignals,
+      before: {
+        url: result.before.url,
+        active_layer_count: result.before.activeLayerCount,
+        success_feedback_count: result.before.successFeedbackCount,
+        list_row_count: result.before.listRowCount,
+        invalid_marker_count: result.before.invalidMarkerCount,
+      },
+      after: {
+        url: result.after.url,
+        active_layer_count: result.after.activeLayerCount,
+        success_feedback_count: result.after.successFeedbackCount,
+        list_row_count: result.after.listRowCount,
+        invalid_marker_count: result.after.invalidMarkerCount,
+      },
+      message:
+        "Submit clicked but business status is not confirmed. Enter state-unconfirmed branch and verify explicitly.",
+    })}`,
+  );
+};
+
+const runPostSubmitValidationLoop = async ({
+  runId,
+  page,
+  elementId,
+  isCombo,
+  step,
+  audit,
+  selfHealKey,
+  initialValidation,
+}: {
+  runId: string;
+  page: Page;
+  elementId: string;
+  isCombo: boolean;
+  step: number;
+  audit: SelfHealAudit;
+  selfHealKey?: string;
+  initialValidation?: ValidationReport;
+}): Promise<{ hadValidationFailure: boolean }> => {
+  let validation = initialValidation ?? (await inspectValidation({ runId, page }));
+  let hadValidationFailure = false;
+  while (validation.failed) {
+    hadValidationFailure = true;
+    if (!selfHealKey) {
+      throw new Error(buildValidationErrorMessage(validation));
+    }
+    const usedRounds = selfHealStore.get(runId, selfHealKey);
+    if (usedRounds >= MAX_SELF_HEAL_ROUNDS) {
+      throw buildSelfHealLimitError(validation);
+    }
+
+    const fillResult = await fillRequiredFields({
+      runId,
+      page,
+      validation,
+      step,
+      audit,
+    });
+    if (fillResult.filledCount === 0) {
+      throw new Error(buildValidationErrorMessage(validation));
+    }
+
+    selfHealStore.increment(runId, selfHealKey);
+    audit.rounds += 1;
+    await page.waitForTimeout(SELF_HEAL_RETRY_WAIT_MS);
+    await clickWithWait({ page, runId, elementId, combo: isCombo });
+    validation = await inspectValidation({ runId, page });
+    audit.missingFields = mergeUnique(audit.missingFields, validation.missingFields);
+  }
+
+  return { hadValidationFailure };
+};
+
+const confirmSubmitSuccessSignals = async ({
+  page,
+  runId,
+  beforeState,
+  validationBeforeFailed,
+}: {
+  page: Page;
+  runId: string;
+  beforeState: SubmitStateSnapshot;
+  validationBeforeFailed: boolean;
+}): Promise<SubmitConfirmationResult> => {
+  let validation = await inspectValidation({ runId, page });
+  let afterState = await captureSubmitStateSnapshot(page);
+  let result = evaluateSubmitConfirmation({
+    before: beforeState,
+    after: afterState,
+    validationBeforeFailed,
+    validationAfterFailed: validation.failed,
+  });
+  if (result.confirmed) {
+    return result;
+  }
+
+  await page.waitForTimeout(POST_SUBMIT_CONFIRM_RECHECK_MS);
+  validation = await inspectValidation({ runId, page });
+  afterState = await captureSubmitStateSnapshot(page);
+  result = evaluateSubmitConfirmation({
+    before: beforeState,
+    after: afterState,
+    validationBeforeFailed,
+    validationAfterFailed: validation.failed,
+  });
+  return result;
+};
+
 const buildSelfHealSuccessMessage = (audit: SelfHealAudit): string => {
-  if ((audit.filledFields.length ?? 0) === 0) {
+  if ((audit.filledFields.length ?? 0) === 0 && (audit.submitSignals.length ?? 0) === 0) {
     return "Clicked successfully";
   }
-  const parts = [`filled required fields [${audit.filledFields.join(", ")}]`];
+  const parts: string[] = [];
+  if (audit.filledFields.length > 0) {
+    parts.push(`filled required fields [${audit.filledFields.join(", ")}]`);
+  }
+  if (audit.submitSignals.length > 0) {
+    parts.push(`submit_signals=[${audit.submitSignals.join(",")}]`);
+  }
   if (audit.rounds > 0) {
     parts.push(`self_heal_rounds=${audit.rounds}`);
   }
-  return `Clicked successfully after validation self-heal: ${parts.join("; ")}`;
+  return `Clicked successfully with post-submit confirmation: ${parts.join("; ")}`;
 };
 
 const runPreSubmitValidationGate = async ({
@@ -1142,37 +1474,65 @@ export const registerClickTool = (server: FastMCP): void => {
       const isCombo = isCombobox(snapshot);
       for (let retry = 0; retry <= retry_count; retry += 1) {
         try {
+          const submitStateBeforeClick = shouldInspectValidation
+            ? await captureSubmitStateSnapshot(page)
+            : undefined;
           await clickWithWait({ page, runId: run_id, elementId: element_id, combo: isCombo });
 
           if (shouldInspectValidation) {
-            let validation = await inspectValidation({ runId: run_id, page });
-            while (validation.failed) {
-              lastValidation = validation;
-              if (!selfHealKey) {
-                throw new Error(buildValidationErrorMessage(validation));
-              }
-              const usedRounds = selfHealStore.get(run_id, selfHealKey);
-              if (usedRounds >= MAX_SELF_HEAL_ROUNDS) {
-                throw buildSelfHealLimitError(validation);
-              }
+            const validationPass = await runPostSubmitValidationLoop({
+              runId: run_id,
+              page,
+              elementId: element_id,
+              isCombo,
+              step: stepNumber,
+              audit: selfHealAudit,
+              selfHealKey,
+            });
 
-              const fillResult = await fillRequiredFields({
-                runId: run_id,
-                page,
-                validation,
-                step: stepNumber,
-                audit: selfHealAudit,
-              });
-              if (fillResult.filledCount === 0) {
-                throw new Error(buildValidationErrorMessage(validation));
-              }
+            const baselineState = submitStateBeforeClick ?? (await captureSubmitStateSnapshot(page));
+            let confirmation = await confirmSubmitSuccessSignals({
+              page,
+              runId: run_id,
+              beforeState: baselineState,
+              validationBeforeFailed: validationPass.hadValidationFailure,
+            });
 
-              selfHealStore.increment(run_id, selfHealKey);
-              selfHealAudit.rounds += 1;
-              await page.waitForTimeout(SELF_HEAL_RETRY_WAIT_MS);
-              await clickWithWait({ page, runId: run_id, elementId: element_id, combo: isCombo });
-              validation = await inspectValidation({ runId: run_id, page });
+            if (!confirmation.confirmed) {
+              selfHealAudit.notes = mergeUnique(selfHealAudit.notes, [
+                `Submit state unconfirmed after click; matched signals: ${describeSubmitConfirmation(confirmation)}`,
+              ]);
+              await page.waitForTimeout(POST_SUBMIT_UNCONFIRMED_WAIT_MS);
+              const delayedValidation = await inspectValidation({ runId: run_id, page });
+              if (delayedValidation.failed) {
+                const delayedPass = await runPostSubmitValidationLoop({
+                  runId: run_id,
+                  page,
+                  elementId: element_id,
+                  isCombo,
+                  step: stepNumber,
+                  audit: selfHealAudit,
+                  selfHealKey,
+                  initialValidation: delayedValidation,
+                });
+                confirmation = await confirmSubmitSuccessSignals({
+                  page,
+                  runId: run_id,
+                  beforeState: baselineState,
+                  validationBeforeFailed:
+                    validationPass.hadValidationFailure || delayedPass.hadValidationFailure,
+                });
+              }
             }
+
+            if (!confirmation.confirmed) {
+              throw buildSubmitStatusUnconfirmedError(confirmation);
+            }
+
+            selfHealAudit.submitSignals = mergeUnique(selfHealAudit.submitSignals, confirmation.matchedSignals);
+            selfHealAudit.notes = mergeUnique(selfHealAudit.notes, [
+              `Submit confirmation signals: ${describeSubmitConfirmation(confirmation)}`,
+            ]);
           }
 
           if (selfHealKey) {
@@ -1202,9 +1562,34 @@ export const registerClickTool = (server: FastMCP): void => {
           lastClickErrorMessage = message;
           const isValidationError = message.startsWith("VALIDATION_ERROR");
           const isSelfHealLimitError = message.startsWith("SELF_HEAL_LIMIT_REACHED");
+          const isSubmitStatusUnconfirmed = message.startsWith(SUBMIT_STATUS_UNCONFIRMED_CODE);
           const isComboboxExpandError = message.startsWith("COMBOBOX_NOT_EXPANDED");
           if (isSelfHealLimitError) {
             errorCode = "SELF_HEAL_LIMIT_REACHED";
+            stepRecorder.add(run_id, {
+              step: stepNumber,
+              desc,
+              notes: selfHealAudit.notes,
+              evidence: selfHealAudit.evidence,
+              missingFields: selfHealAudit.missingFields,
+              filledFields: selfHealAudit.filledFields,
+              selfHealRounds: selfHealAudit.rounds,
+              action: "click",
+              status: "FAILED",
+              errorCode,
+              retryCount: retry,
+              latencyMs: Date.now() - startedAt,
+              pageUrlBefore,
+              pageUrlAfter: page.url(),
+              createdAt: new Date().toISOString(),
+            });
+            throw (error instanceof Error ? error : new Error(message));
+          }
+          if (isSubmitStatusUnconfirmed) {
+            errorCode = SUBMIT_STATUS_UNCONFIRMED_CODE;
+            if (selfHealKey) {
+              selfHealStore.reset(run_id, selfHealKey);
+            }
             stepRecorder.add(run_id, {
               step: stepNumber,
               desc,
